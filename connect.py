@@ -1,15 +1,20 @@
-import psycopg2
+
+from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
+
+def connect(connection_str):
+    try:
+        engine = create_engine(connection_str)
+        print("Connected to the PostgreSQL server.")
+        return engine
+    except SQLAlchemyError as error:
+        print(f"Error connecting to the database: {error}")
+        return None
+
+
 from config import load_config
 
-def connect(config):
-    """ Connect to the PostgreSQL database server """
-    try:
-        # connecting to the PostgreSQL server
-        with psycopg2.connect(**config) as conn:
-            print('Connected to the PostgreSQL server.')
-            return conn
-    except (psycopg2.DatabaseError, Exception) as error:
-        print(error)
+
 
 
 if __name__ == '__main__':
