@@ -5,19 +5,13 @@ import pandas as pd
 from connect import connect
 from config import load_config
 from sliding_window import sliding_window_connections  # Import the sliding window function
+import stanza  # Import stanza
 import re
-import nltk
-from nltk.corpus import words
 from datetime import datetime  # Import datetime for timestamp
 
-# Assuming 'swedish_words_korp' and 'swedish_words_wiktionary' are loaded from their respective corpora
-swedish_words_korp = set()  # Load Swedish words from Språkbanken or other corpus
-swedish_words_wiktionary = set()  # Load Swedish words from Wiktionary corpus
-
-# Load Swedish words from NLTK corpus
-nltk.download('words')
-swedish_words_nltk = set([word.lower() for word in words.words() if word.isalpha()])
-
+# Initialize Stanza for Swedish language
+stanza.download('sv')  # Download the Swedish model if not already downloaded
+nlp = stanza.Pipeline('sv')  # Initialize Stanza pipeline for Swedish
 
 # Function to delete tweet_text_attention table
 def delete_tweet_text_attention(engine):
@@ -29,7 +23,6 @@ def delete_tweet_text_attention(engine):
         print("Table 'tweet_text_attention' deleted successfully.")
     except SQLAlchemyError as error:
         print(f"Error deleting table: {error}")
-
 
 # Function to create tweet_text_attention table
 def create_tweet_text_attention_table(engine):
@@ -57,23 +50,8 @@ def clear_tweet_text_attention(engine):
     except SQLAlchemyError as error:
         print(f"Error clearing table: {error}")
 
-# Function to clean tweet text with configurable preprocessing options and corpus selection
-def clean_tweet_text(tweet, remove_urls=True, remove_special_chars=True, remove_digits=True,
-                     filter_swedish=False, corpus_options=None):
-    """
-    Preprocess the tweet text based on selected options.
-
-    Args:
-    - tweet (str): The tweet text to process.
-    - remove_urls (bool): If True, removes URLs.
-    - remove_special_chars (bool): If True, removes special characters.
-    - remove_digits (bool): If True, removes digits.
-    - filter_swedish (bool): If True, filters out non-Swedish words using selected corpus options.
-    - corpus_options (dict): A dictionary of corpus sets (e.g., NLTK, Korp, Wiktionary) to be used for Swedish word filtering.
-    
-    Returns:
-    - str: The cleaned tweet text.
-    """
+# Function to clean and lemmatize tweet text
+def clean_and_lemmatize_tweet(tweet, remove_urls=True, remove_special_chars=True, remove_digits=True):
     # Remove URLs
     if remove_urls:
         tweet = re.sub(r'http\S+|www\S+|https\S+', '', tweet, flags=re.MULTILINE)
@@ -89,16 +67,14 @@ def clean_tweet_text(tweet, remove_urls=True, remove_special_chars=True, remove_
     # Remove extra spaces
     tweet = re.sub(r'\s+', ' ', tweet).strip()
 
-    # Filter words based on Swedish corpus
-    if filter_swedish and corpus_options:
-        words_in_tweet = tweet.split()
-        combined_swedish_words = set().union(*corpus_options.values())  # Combine all selected corpus sets
-        tweet = ' '.join([word for word in words_in_tweet if word.lower() in combined_swedish_words])
+    # Lemmatize using Stanza
+    doc = nlp(tweet)
+    lemmatized_words = [word.lemma for sentence in doc.sentences for word in sentence.words if word.lemma]
 
-    return tweet
+    return ' '.join(lemmatized_words)
 
-# Updated function to process tweet text with configurable cleaning
-def process_tweet_text(engine, window_size=2, clean_options=None):
+# Updated function to process tweet text with lemmatization
+def process_tweet_text(engine, window_size=2):
     query = text("SELECT text FROM tweets")
     df = pd.read_sql(query, engine)
     
@@ -116,7 +92,11 @@ def process_tweet_text(engine, window_size=2, clean_options=None):
     
     # Iterate through each tweet's text
     for tweet_text in df['text']:
-        connections = sliding_window_connections(window_size, tweet_text)
+        # Clean and lemmatize tweet
+        cleaned_text = clean_and_lemmatize_tweet(tweet_text)
+        
+        # Generate connections using sliding window
+        connections = sliding_window_connections(window_size, cleaned_text)
         
         # Accumulate counts
         for word_pair, count in connections.items():
@@ -156,21 +136,8 @@ if __name__ == '__main__':
     config = load_config()  # Assuming you have a function that loads config
     engine = connect(config)  # Assuming this function connects to the DB
     
-    # Define preprocessing options
-    clean_options = {
-        'remove_urls': True,
-        'remove_special_chars': True,
-        'remove_digits': True,
-        'filter_swedish': False,
-        'corpus_options': {
-            'nltk': swedish_words_nltk,        # NLTK corpus
-            'korp': swedish_words_korp,        # Språkbanken corpus
-            'wiktionary': swedish_words_wiktionary  # Wiktionary corpus
-        }
-    }
-    
-    # Process tweets with the chosen cleaning options
-    process_tweet_text(engine, window_size=2, clean_options=clean_options)
+    # Process tweets with lemmatization
+    process_tweet_text(engine, window_size=2)
     
     # Save the table to a CSV file with timestamp
     # save_tweet_text_attention_to_csv(engine)
