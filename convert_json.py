@@ -6,6 +6,7 @@ from connect import connect
 from config import load_config
 import pandas as pd
 
+
 def create_table(engine):
     metadata = MetaData()
     
@@ -44,7 +45,8 @@ def unpack_one_row(row):
     like_count = public_metrics.get('like_count', 0)
     quote_count = public_metrics.get('quote_count', 0)
     created_at = row.get('created_at')
-    
+ 
+
     return {
         'tweet_id': tweet_id,
         'conversation_id': conversation_id,
@@ -109,7 +111,7 @@ def drop_table(engine):
 if __name__ == '__main__':
     config = load_config()
     engine = connect(config)
-  
+    drop_table(engine)
     create_table(engine)
 
 

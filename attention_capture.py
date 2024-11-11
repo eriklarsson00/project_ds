@@ -1,64 +1,27 @@
-from sqlalchemy import Table, Column, String, Integer, MetaData, text
+from sqlalchemy import Table, Column, String, Integer, MetaData, text, inspect
 from sqlalchemy.exc import SQLAlchemyError
 from collections import defaultdict
 import pandas as pd
 from connect import connect
 from config import load_config
 from sliding_window import sliding_window_connections  # Import the sliding window function
-import stanza  # Import stanza
+from datetime import datetime  
+import numpy as np# Import datetime for timestamp
 import re
-from datetime import datetime  # Import datetime for timestamp
-
-# Initialize Stanza for Swedish language
+import stanza
 stanza.download('sv')  # Download the Swedish model if not already downloaded
 nlp = stanza.Pipeline('sv')  # Initialize Stanza pipeline for Swedish
-
-# Function to delete tweet_text_attention table
-def delete_tweet_text_attention(engine):
-    metadata = MetaData()
-    tweet_text_attention = Table('tweet_text_attention', metadata, autoload_with=engine)
-
-    try:
-        tweet_text_attention.drop(engine)
-        print("Table 'tweet_text_attention' deleted successfully.")
-    except SQLAlchemyError as error:
-        print(f"Error deleting table: {error}")
-
-# Function to create tweet_text_attention table
-def create_tweet_text_attention_table(engine):
-    metadata = MetaData()
-    
-    tweet_text_attention = Table(
-        'tweet_text_attention', metadata,
-        Column('word1', String, nullable=False),
-        Column('word2', String, nullable=False),
-        Column('count', Integer, nullable=False)
-    )
-    
-    try:
-        metadata.create_all(engine)  # Create the table
-        print("Table 'tweet_text_attention' created successfully.")
-    except SQLAlchemyError as error:
-        print(f"Error creating table: {error}")
-
-# Function to remove all rows from tweet_text_attention table
-def clear_tweet_text_attention(engine):
-    try:
-        with engine.begin() as conn:
-            conn.execute(text("DELETE FROM tweet_text_attention"))
-            print("All rows removed from 'tweet_text_attention'.")
-    except SQLAlchemyError as error:
-        print(f"Error clearing table: {error}")
-
-# Function to clean and lemmatize tweet text
 def clean_and_lemmatize_tweet(tweet, remove_urls=True, remove_special_chars=True, remove_digits=True):
+    
+    tweet = tweet.lower()
     # Remove URLs
+   
     if remove_urls:
         tweet = re.sub(r'http\S+|www\S+|https\S+', '', tweet, flags=re.MULTILINE)
 
     # Remove special characters
     if remove_special_chars:
-        tweet = re.sub(r'[^A-Za-z\s]', '', tweet)
+        tweet = re.sub(r'[^A-Za-zåäöÅÄÖ\s]', '', tweet)
 
     # Remove digits
     if remove_digits:
@@ -70,55 +33,115 @@ def clean_and_lemmatize_tweet(tweet, remove_urls=True, remove_special_chars=True
     # Lemmatize using Stanza
     doc = nlp(tweet)
     lemmatized_words = [word.lemma for sentence in doc.sentences for word in sentence.words if word.lemma]
-
     return ' '.join(lemmatized_words)
 
-# Updated function to process tweet text with lemmatization
-def process_tweet_text(engine, window_size=2):
-    query = text("SELECT text FROM tweets")
-    df = pd.read_sql(query, engine)
+# Function to delete tweet_text_attention table
+def delete_tweet_text_attention(engine, window_size):
+    table_name = f'word_pairs_window_{window_size}'
+    metadata = MetaData()
+
+    # Use SQLAlchemy's inspector to check if the table exists
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        print(f"Table '{table_name}' does not exist, so it cannot be deleted.")
+        return  # Exit the function if the table does not exist
+
+    # If the table exists, proceed to delete it
+    tweet_text_attention = Table(table_name, metadata, autoload_with=engine)
+    try:
+        tweet_text_attention.drop(engine)
+        print(f"Table '{table_name}' deleted successfully.")
+    except SQLAlchemyError as error:
+        print(f"Error deleting table '{table_name}': {error}")
+
+# Function to create tweet_text_attention table
+def create_tweet_text_attention_table(engine, window_size):
+    metadata = MetaData()
+    table_name = f'word_pairs_window_{window_size}'
+    tweet_text_attention = Table(
+        table_name, metadata,
+        Column('word1', String, nullable=False),
+        Column('word2', String, nullable=False),
+        Column('word_count', Integer, nullable=False)
+    )
     
-    # Delete the table if it exists
-    delete_tweet_text_attention(engine)
+    try:
+        metadata.create_all(engine)  # Create the table
+        print(f"Table: {table_name} created successfully.")
+    except SQLAlchemyError as error:
+        print(f"Error creating table: {error}")
 
-    # Create tweet_text_attention table
-    create_tweet_text_attention_table(engine)
-
-    # Clear existing data if necessary in tweet_text_attention
-    clear_tweet_text_attention(engine)
-
-    # Dictionary to store total connections
-    total_connections = defaultdict(int)  
+# Function to remove all rows from tweet_text_attention table
+def clear_tweet_text_attention(engine, window_size):
     
-    # Iterate through each tweet's text
-    for tweet_text in df['text']:
-        # Clean and lemmatize tweet
-        cleaned_text = clean_and_lemmatize_tweet(tweet_text)
-        
-        # Generate connections using sliding window
-        connections = sliding_window_connections(window_size, cleaned_text)
-        
-        # Accumulate counts
-        for word_pair, count in connections.items():
-            total_connections[word_pair] += count
-
-    # Prepare data for insertion
-    insert_data = [{'word1': pair[0], 'word2': pair[1], 'count': count} for pair, count in total_connections.items()]
-    
-    # Insert into tweet_text_attention
-    insert_query = text("""
-        INSERT INTO tweet_text_attention (word1, word2, count)
-        VALUES (:word1, :word2, :count)
-    """)
+    table_name = f'word_pairs_window_{window_size}'
+    metadata = MetaData()
+    tweet_text_attention = Table(table_name, metadata, autoload_with=engine)
 
     try:
         with engine.begin() as conn:
-            conn.execute(insert_query, insert_data)
-            print(f"{len(insert_data)} word pairs inserted successfully into 'tweet_text_attention'.")
+            conn.execute(tweet_text_attention.delete()) 
+            print(f"All rows removed from '{table_name}'.")
     except SQLAlchemyError as error:
-        print(f"Error inserting data: {error}")
+        print(f"Error clearing table '{table_name}': {error}")
+
+
+def create_tables(engine, window_size):
+        for i in range (2, window_size+1):
+            delete_tweet_text_attention(engine, i)
+            create_tweet_text_attention_table(engine, i)
+        #clear_tweet_text_attention(engine)
+
+def is_valid_table_name(table_name, max_window_size=10):
+    # Validate that the table name follows the expected pattern
+    allowed_tables = {f"word_pairs_window_{i}" for i in range(2, max_window_size + 1)}
+    return table_name in allowed_tables
+
+
+def process_tweet_text(engine, max_window_size=10):
+    query = text("SELECT text FROM tweets")
+    df = pd.read_sql(query, engine) # TODO: BATCH PROCESS OR APACHE SPARK??
+
+    # Create tweet_text_attention table
+
+
+    # Dictionary to store total connections
+    total_connections_windows = {size: defaultdict(int) for size in range(2, max_window_size + 1)} 
+
+    
+    # Iterate through each tweet's text
+    for tweet_text in df['text']:
+        cleaned_text = clean_and_lemmatize_tweet(tweet_text)
+        # Generate connections using sliding window
+        connections = sliding_window_connections(cleaned_text, max_window_size)
+        
+        for k, connection in connections.items():
+            for word_pair, count in connection.items():
+                total_connections_windows[k][word_pair] += count
+    
+    
+    # Prepare data for insertion
+    for k, connection in total_connections_windows.items(): 
+        insert_data = [{'word1': pair[0], 'word2': pair[1], 'word_count': count} for pair, count in connection.items()]
+        table_name = f'word_pairs_window_{k}'
+
+        if not is_valid_table_name(table_name, max_window_size):
+            raise ValueError(f"Invalid table name: {table_name}")
+    # Insert into tweet_text_attention
+        insert_query = text(f"""
+            INSERT INTO {table_name} (word1, word2, word_count)
+            VALUES (:word1, :word2, :word_count)
+        """)
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(insert_query, insert_data)
+                print(f"{len(insert_data)} word pairs inserted successfully into {table_name}'.")
+        except SQLAlchemyError as error:
+            print(f"Error inserting data: {error}")
 
 # Function to save tweet_text_attention as CSV with timestamp
+
 def save_tweet_text_attention_to_csv(engine):
     query = text("SELECT * FROM tweet_text_attention")
     df = pd.read_sql(query, engine)
@@ -126,18 +149,24 @@ def save_tweet_text_attention_to_csv(engine):
     # Generate timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_path = f'tweet_text_attention_{timestamp}.csv'
-    
+
     # Save to CSV
     df.to_csv(file_path, index=False)
     print(f"Table 'tweet_text_attention' saved to {file_path}.")
 
 # Main logic
 if __name__ == '__main__':
+
+    print("numpy version: ", np.__version__)
     config = load_config()  # Assuming you have a function that loads config
     engine = connect(config)  # Assuming this function connects to the DB
     
+    
+    create_tables(engine, window_size=10)
+
     # Process tweets with lemmatization
-    process_tweet_text(engine, window_size=2)
+
+    process_tweet_text(engine)
     
     # Save the table to a CSV file with timestamp
     # save_tweet_text_attention_to_csv(engine)
