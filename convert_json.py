@@ -1,11 +1,9 @@
-
-from sqlalchemy import  MetaData, Table, Column, BigInteger, Integer, Text, TIMESTAMP
+from sqlalchemy import MetaData, Table, Column, BigInteger, Integer, Text, TIMESTAMP, text
 from sqlalchemy.exc import SQLAlchemyError
 import json
 from connect import connect
 from config import load_config
 import pandas as pd
-
 
 def create_table(engine):
     metadata = MetaData()
@@ -20,7 +18,8 @@ def create_table(engine):
         Column('reply_count', Integer),
         Column('like_count', Integer),
         Column('quote_count', Integer),
-        Column('created_at', TIMESTAMP)
+        Column('created_at', TIMESTAMP),
+        Column('unique_id', Integer, nullable=False)  # Add unique_id column. Change to BIGINT if ever needed or use some interesting way to process and delete tweets table as needed.
     )
     
     try:
@@ -29,12 +28,7 @@ def create_table(engine):
     except SQLAlchemyError as error:
         print(f"Error creating table: {error}")
 
-
-from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, DateTime
-from sqlalchemy.sql import text
-
-
-def unpack_one_row(row):
+def unpack_one_row(row, unique_id):
     tweet_id = row.get('id')
     conversation_id = row.get('conversation_id')
     author_id = row.get('author_id')
@@ -46,7 +40,6 @@ def unpack_one_row(row):
     quote_count = public_metrics.get('quote_count', 0)
     created_at = row.get('created_at')
  
-
     return {
         'tweet_id': tweet_id,
         'conversation_id': conversation_id,
@@ -56,41 +49,39 @@ def unpack_one_row(row):
         'reply_count': reply_count,
         'like_count': like_count,
         'quote_count': quote_count,
-        'created_at': created_at
+        'created_at': created_at,
+        'unique_id': unique_id  # Add unique_id to the returned dictionary
     }
-
 
 def insert_into_db(engine, data):
     try:
         with engine.begin() as conn:
+            # Get the largest unique_id currently in the table
+            result = conn.execute("SELECT COALESCE(MAX(unique_id), 0) FROM tweets")
+            max_unique_id = result.scalar()
+            current_unique_id = max_unique_id + 1  # Increment for the new unique_id
+
             insert_query = text("""
                 INSERT INTO tweets (tweet_id, conversation_id, author_id, text, 
-                                    retweet_count, reply_count, like_count, quote_count, created_at)
+                                    retweet_count, reply_count, like_count, quote_count, created_at, unique_id)
                 VALUES (:tweet_id, :conversation_id, :author_id, :text, 
-                        :retweet_count, :reply_count, :like_count, :quote_count, :created_at)
+                        :retweet_count, :reply_count, :like_count, :quote_count, :created_at, :unique_id)
             """)
 
-            records = [unpack_one_row(row) for row in data]
+            records = []
+            for row in data:
+                records.append(unpack_one_row(row, current_unique_id))
+                current_unique_id += 1  # Increment the unique_id for the next tweet
 
             conn.execute(insert_query, records)
-
             print(f'{len(records)} records inserted successfully')
     except Exception as error:
         print(f'Error inserting data: {error}')
-
-
-
-
-  
-
-
-
 
 def load_json(path):
     with open(path, 'r') as file:
         data = json.load(file)
     return data
-
 
 def drop_table(engine):
     metadata = MetaData()
@@ -107,6 +98,7 @@ def drop_table(engine):
             print(f"Error dropping table: {error}")
     else:
         print("Table 'tweets' does not exist.")
+
 # 6. Main logic
 if __name__ == '__main__':
     config = load_config()
@@ -114,19 +106,8 @@ if __name__ == '__main__':
     drop_table(engine)
     create_table(engine)
 
-
     path = 'data/aftonbladet.json'
     data = load_json(path)
 
     twitter_data = data['data']  
     insert_into_db(engine, twitter_data)
-
-    
-    query = text("""
-    SELECT * FROM tweets;
-    """)
-
-    df = pd.read_sql(query, engine)
-    print(df.head())
-    
-  

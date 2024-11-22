@@ -4,10 +4,17 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 import os
+import sys
+
+
+# Add the path to the 'project_ds' directory to sys.path
+sys.path.append('/Users/harivs/Documents/GitHub/project_ds')
+
 from processTweets import process_tweets_file
 from convert_json import connect, load_config
 
-def process_newspaper_folder(folder_path, **kwargs):
+
+def process_tweets_folder(folder_path, **kwargs):
     config = load_config()
     engine = connect(config)
     
@@ -37,7 +44,7 @@ with DAG(
     catchup=False,
 ) as dag:
     
-    data_dir = '/Users/harivs/Documents/GitHub/project_ds/tweets'  # Update with the absolute path to your data folder
+    data_dir = '/Users/harivs/Documents/GitHub/project_ds/tweets'  # Update with the absolute path to the tweets folder
     
     # Dynamically create tasks for each newspaper folder
     tasks = []
@@ -46,7 +53,7 @@ with DAG(
         if os.path.isdir(folder_path):
             task = PythonOperator(
                 task_id=f'process_{folder}',
-                python_callable=process_newspaper_folder,
+                python_callable=process_tweets_folder,
                 op_kwargs={'folder_path': folder_path},
             )
             tasks.append(task)
