@@ -1,4 +1,4 @@
-from sqlalchemy import Table, Column, String, Integer, MetaData, text, inspect
+from sqlalchemy import Table, Column, String, Integer, MetaData, text, inspect,Index
 from sqlalchemy.exc import SQLAlchemyError
 from collections import defaultdict
 import pandas as pd
@@ -37,7 +37,7 @@ def clean_and_lemmatize_tweet(tweet, remove_urls=True, remove_special_chars=True
 
 # Function to delete tweet_text_attention table
 def delete_tweet_text_attention(engine, window_size):
-    table_name = f'word_pairs_window_{window_size}'
+    table_name = 'word_pairs_all_windows'
     metadata = MetaData()
 
     # Use SQLAlchemy's inspector to check if the table exists
@@ -55,6 +55,43 @@ def delete_tweet_text_attention(engine, window_size):
         print(f"Error deleting table '{table_name}': {error}")
 
 # Function to create tweet_text_attention table
+
+def delete_all_window_size_table(engine):
+    table_name = 'word_pairs_all_windows'
+    metadata = MetaData()
+
+    # Use SQLAlchemy's inspector to check if the table exists
+    inspector = inspect(engine)
+    if table_name not in inspector.get_table_names():
+        print(f"Table '{table_name}' does not exist, so it cannot be deleted.")
+        return  # Exit the function if the table does not exist
+
+    # If the table exists, proceed to delete it
+    tweet_text_attention = Table(table_name, metadata, autoload_with=engine)
+    try:
+        tweet_text_attention.drop(engine)
+        print(f"Table '{table_name}' deleted successfully.")
+    except SQLAlchemyError as error:
+        print(f"Error deleting table '{table_name}': {error}")
+
+def create_all_window_size_table(engine):
+    metadata = MetaData()
+    table_name = 'word_pairs_all_windows'
+    table = Table(
+        table_name, metadata,
+        Column('window_size', Integer, nullable=False),
+        Column('word1', String, nullable=False),
+        Column('word2', String, nullable=False),
+        Column('word_count', Integer, nullable=False),
+        Index('ix_sliding_window_size', 'window_size')
+    )
+    try:
+        metadata.create_all(engine)  # Create the table
+        print(f"Table: {table_name} created successfully.")
+    except SQLAlchemyError as error:
+        print(f"Error creating table: {error}")
+
+
 def create_tweet_text_attention_table(engine, window_size):
     metadata = MetaData()
     table_name = f'word_pairs_window_{window_size}'
@@ -87,6 +124,7 @@ def clear_tweet_text_attention(engine, window_size):
 
 
 def create_tables(engine, window_size):
+        delete_all_window_size_table(engine)
         for i in range (2, window_size+1):
             delete_tweet_text_attention(engine, i)
             create_tweet_text_attention_table(engine, i)
@@ -96,6 +134,25 @@ def is_valid_table_name(table_name, max_window_size=10):
     # Validate that the table name follows the expected pattern
     allowed_tables = {f"word_pairs_window_{i}" for i in range(2, max_window_size + 1)}
     return table_name in allowed_tables
+
+def process_all_tweets(engine, all_connections):
+    insert_all_data = [
+    {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
+    for k, connection in all_connections.items()
+    for pair, count in connection.items()]
+    # Insert into tweet_text_attention
+    insert_query = text("""
+        INSERT INTO word_pairs_all_windows (window_size, word1, word2, word_count)
+        VALUES (:window_size,:word1, :word2, :word_count)
+    """)
+    try:
+        with engine.begin() as conn:
+            conn.execute(insert_query, insert_all_data)
+            print(f"{len(insert_all_data)} word pairs inserted successfully into word_pairs_all_windows'.")
+    except SQLAlchemyError as error:
+        print(f"Error inserting data: {error}")
+        
+
 
 
 def process_tweet_text(engine, max_window_size=10):
@@ -121,6 +178,11 @@ def process_tweet_text(engine, max_window_size=10):
     
     
     # Prepare data for insertion
+    
+    #Test to process all tweets into one table
+    process_all_tweets(engine, total_connections_windows)
+
+
     for k, connection in total_connections_windows.items(): 
         insert_data = [{'word1': pair[0], 'word2': pair[1], 'word_count': count} for pair, count in connection.items()]
         table_name = f'word_pairs_window_{k}'
@@ -139,6 +201,7 @@ def process_tweet_text(engine, max_window_size=10):
                 print(f"{len(insert_data)} word pairs inserted successfully into {table_name}'.")
         except SQLAlchemyError as error:
             print(f"Error inserting data: {error}")
+        
 
 # Function to save tweet_text_attention as CSV with timestamp
 
@@ -163,6 +226,7 @@ if __name__ == '__main__':
     
     
     create_tables(engine, window_size=10)
+    create_all_window_size_table(engine)
 
     # Process tweets with lemmatization
 
