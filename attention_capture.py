@@ -136,60 +136,75 @@ def is_valid_table_name(table_name, max_window_size=10):
     return table_name in allowed_tables
 
 def get_connections(engine, start_unique_id=1, batch_size=10000, max_window_size=10):
-    current_unique_id = start_unique_id
-    end_unique_id = current_unique_id + batch_size
+    end_unique_id = start_unique_id + batch_size
 
-    query = text(f"""
-            SELECT unique_id, text FROM tweets
-            WHERE unique_id >= :current_unique_id AND unique_id < :end_unique_id
-            ORDER BY unique_id
-        """)
+    query = text("""
+        SELECT unique_id, text FROM tweets
+        WHERE unique_id >= :current_unique_id AND unique_id < :end_unique_id
+        ORDER BY unique_id
+    """)
     
-    df = pd.read_sql(query, engine, params={"current_unique_id": current_unique_id, "end_unique_id": end_unique_id})
-    print(df.shape)
-        # Exit the loop if no more records are fetched
+    # Fetch the batch
+    df = pd.read_sql(query, engine, params={"current_unique_id": start_unique_id, "end_unique_id": end_unique_id})
+    
+
+    # Exit if no records are fetched
     if df.empty:
-        print(f"No more records found starting from unique_id {current_unique_id}.")
-        
-    print(f"Processing records with id from {current_unique_id} to {end_unique_id - 1}...")
-        
+        print(f"No more records found starting from unique_id {start_unique_id}.")
+        return None  # Signal no more data
+
+    print(f"Processing records with id from {start_unique_id} to {end_unique_id - 1}...")
+
     # Dictionary to store total connections
     total_connections_windows = {size: defaultdict(int) for size in range(2, max_window_size + 1)} 
-        
+
     # Process each tweet in the batch
     for tweet_text in df['text']:
         cleaned_text = clean_and_lemmatize_tweet(tweet_text)
         # Generate connections using sliding window
         connections = sliding_window_connections(cleaned_text, max_window_size)
-        
         for k, connection in connections.items():
             for word_pair, count in connection.items():
                 total_connections_windows[k][word_pair] += count
-    current_unique_id = end_unique_id
-    print('test')
+
+    print('Finished processing batch')
     return total_connections_windows
 
-    
 
-def process_tweets_singular(engine, start_unique_id=1, max_window_size=10, batch_size=10000):
-    all_connections = get_connections(engine, start_unique_id, batch_size, max_window_size)
-    print("after get_connect")
-    insert_all_data = [
-    {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
-    for k, connection in all_connections.items()
-    for pair, count in connection.items()]
-    # Insert into tweet_text_attention
-    insert_query = text("""
-        INSERT INTO word_pairs_all_windows (window_size, word1, word2, word_count)
-        VALUES (:window_size,:word1, :word2, :word_count)
-    """)
-    print("here?")
-    try:
-        with engine.begin() as conn:
-            conn.execute(insert_query, insert_all_data)
-            print(f"{len(insert_all_data)} word pairs inserted successfully into word_pairs_all_windows'.")
-    except SQLAlchemyError as error:
-        print(f"Error inserting data: {error}")
+def process_tweets_singular(engine, start_unique_id=1, batch_size=10000, max_window_size=10):
+    while True:
+        # Process one batch
+        total_connections = get_connections(engine, start_unique_id, batch_size, max_window_size)
+
+        # Exit loop if no more data
+        if total_connections is None:
+            print("All tweets processed.")
+            break
+        print('\n')
+        print(f'insert data from batch to db')
+        insert_all_data = [
+            {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
+            for k, connection in total_connections.items()
+            for pair, count in connection.items()
+        ]
+        insert_query = text("""
+            INSERT INTO word_pairs_all_windows (window_size, word1, word2, word_count)
+            VALUES (:window_size, :word1, :word2, :word_count)
+        """)
+
+        try:
+            with engine.begin() as conn:
+                conn.execute(insert_query, insert_all_data)
+                print(f"{len(insert_all_data)} word pairs inserted successfully.")
+        except SQLAlchemyError as error:
+            print(f"Error inserting data: {error}")
+
+        # Increment the starting point for the next batch
+        start_unique_id += batch_size
+        print(f"Moving to the next batch starting at unique_id {start_unique_id}.")
+
+
+
 
 def process_tweet_text(engine, start_unique_id=1, max_window_size=10, batch_size=10000):
 
@@ -221,12 +236,15 @@ if __name__ == '__main__':
     print("numpy version: ", np.__version__)
     config = load_config()  # Assuming you have a function that loads config
     engine = connect(config)  # Assuming this function connects to the DB
-
+    delete_all_window_size_table(engine)
+    
     create_tables(engine, window_size=10)
     create_all_window_size_table(engine)
     # Example start_unique_id
     start_unique_id = 1  # Replace with the actual starting unique_id you want to process
     
     # Process tweets in batches with lemmatization
-    process_tweet_text(engine, start_unique_id, max_window_size=10)
-    process_tweets_singular(engine, start_unique_id, max_window_size=10)
+    print('\n')
+    print('proccesing tweets into singular table')
+    #process_tweet_text(engine, start_unique_id, max_window_size=10)
+    process_tweets_singular(engine, start_unique_id, max_window_size=10, batch_size=100)
