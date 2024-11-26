@@ -9,31 +9,29 @@ from datetime import datetime
 import numpy as np# Import datetime for timestamp
 import re
 import stanza
+import time
 stanza.download('sv')  # Download the Swedish model if not already downloaded
-nlp = stanza.Pipeline('sv')  # Initialize Stanza pipeline for Swedish
-def clean_and_lemmatize_tweet(tweet, remove_urls=True, remove_special_chars=True, remove_digits=True):
-    
-    tweet = tweet.lower()
-    # Remove URLs
-   
-    if remove_urls:
-        tweet = re.sub(r'http\S+|www\S+|https\S+', '', tweet, flags=re.MULTILINE)
+nlp = stanza.Pipeline('sv', processors='tokenize,lemma', tokenize_pretokenized=False)  # Initialize Stanza pipeline for Swedish
+def clean_and_lemmatize_tweets(tweets, remove_urls=True, remove_special_chars=True, remove_digits=True):
+    cleaned_tweets = []
+    for tweet in tweets:
+        tweet = tweet.lower()
+        if remove_urls:
+            tweet = re.sub(r'http\S+|www\S+|https\S+', '', tweet, flags=re.MULTILINE)
+        if remove_special_chars:
+            tweet = re.sub(r'[^A-Za-zåäöÅÄÖ\s]', '', tweet)
+        if remove_digits:
+            tweet = re.sub(r'\d+', '', tweet)
+        tweet = re.sub(r'\s+', ' ', tweet).strip()
+        cleaned_tweets.append(tweet)
 
-    # Remove special characters
-    if remove_special_chars:
-        tweet = re.sub(r'[^A-Za-zåäöÅÄÖ\s]', '', tweet)
-
-    # Remove digits
-    if remove_digits:
-        tweet = re.sub(r'\d+', '', tweet)
-
-    # Remove extra spaces
-    tweet = re.sub(r'\s+', ' ', tweet).strip()
-
-    # Lemmatize using Stanza
-    doc = nlp(tweet)
-    lemmatized_words = [word.lemma for sentence in doc.sentences for word in sentence.words if word.lemma]
-    return ' '.join(lemmatized_words)
+    # Process tweets in batch
+    docs = nlp('\n'.join(cleaned_tweets)).sentences
+    lemmatized = [
+        ' '.join(word.lemma for word in sentence.words if word.lemma)
+        for sentence in docs
+    ]
+    return lemmatized
 
 # Function to delete tweet_text_attention table
 def delete_tweet_text_attention(engine, window_size):
@@ -159,23 +157,34 @@ def get_connections(engine, start_unique_id=1, batch_size=10000, max_window_size
     total_connections_windows = {size: defaultdict(int) for size in range(2, max_window_size + 1)} 
 
     # Process each tweet in the batch
-    for tweet_text in df['text']:
-        cleaned_text = clean_and_lemmatize_tweet(tweet_text)
-        # Generate connections using sliding window
-        connections = sliding_window_connections(cleaned_text, max_window_size)
+    
+    for_cleaning = df['text'].tolist()
+    
+    cleaned_text = clean_and_lemmatize_tweets(for_cleaning)
+
+   
+    
+
+    for t in cleaned_text:
+        connections =  sliding_window_connections(t, max_window_size)
         for k, connection in connections.items():
             for word_pair, count in connection.items():
                 total_connections_windows[k][word_pair] += count
-
+   
     print('Finished processing batch')
+    
     return total_connections_windows
 
 
 def process_tweets_singular(engine, start_unique_id=1, batch_size=10000, max_window_size=10):
     while True:
-        # Process one batch
-        total_connections = get_connections(engine, start_unique_id, batch_size, max_window_size)
-
+      
+        start_time = time.time()
+        total_connections, total_time_clean, total_time_sliding= get_connections(engine, start_unique_id, batch_size, max_window_size)
+     
+        elapsed_time = end_time - start_time  # Calculate elapsed time
+        print(f"Batch processed in {elapsed_time:.2f} seconds.")
+      
         # Exit loop if no more data
         if total_connections is None:
             print("All tweets processed.")
@@ -194,7 +203,11 @@ def process_tweets_singular(engine, start_unique_id=1, batch_size=10000, max_win
 
         try:
             with engine.begin() as conn:
+                start_time = time.time()
                 conn.execute(insert_query, insert_all_data)
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                print('insertion', elapsed_time)
                 print(f"{len(insert_all_data)} word pairs inserted successfully.")
         except SQLAlchemyError as error:
             print(f"Error inserting data: {error}")
@@ -247,4 +260,4 @@ if __name__ == '__main__':
     print('\n')
     print('proccesing tweets into singular table')
     #process_tweet_text(engine, start_unique_id, max_window_size=10)
-    process_tweets_singular(engine, start_unique_id, max_window_size=10, batch_size=100)
+    process_tweets_singular(engine, start_unique_id, max_window_size=10, batch_size=10000)
