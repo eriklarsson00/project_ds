@@ -9,6 +9,7 @@ from datetime import datetime
 import numpy as np# Import datetime for timestamp
 import re
 import stanza
+import time
 stanza.download('sv')  # Download the Swedish model if not already downloaded
 nlp = stanza.Pipeline('sv')  # Initialize Stanza pipeline for Swedish
 def clean_and_lemmatize_tweet(tweet, remove_urls=True, remove_special_chars=True, remove_digits=True):
@@ -174,7 +175,11 @@ def get_connections(engine, start_unique_id=1, batch_size=10000, max_window_size
 def process_tweets_singular(engine, start_unique_id=1, batch_size=10000, max_window_size=10):
     while True:
         # Process one batch
+        start_time = time.time()
         total_connections = get_connections(engine, start_unique_id, batch_size, max_window_size)
+        end_time = time.time()  # Record the end time
+        elapsed_time = end_time - start_time  # Calculate elapsed time
+        print(f"Batch processed in {elapsed_time:.2f} seconds.")
 
         # Exit loop if no more data
         if total_connections is None:
