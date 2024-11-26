@@ -135,7 +135,45 @@ def is_valid_table_name(table_name, max_window_size=10):
     allowed_tables = {f"word_pairs_window_{i}" for i in range(2, max_window_size + 1)}
     return table_name in allowed_tables
 
-def process_all_tweets(engine, all_connections):
+def get_connections(engine, start_unique_id=1, batch_size=10000, max_window_size=10):
+    current_unique_id = start_unique_id
+    end_unique_id = current_unique_id + batch_size
+
+    query = text(f"""
+            SELECT unique_id, text FROM tweets
+            WHERE unique_id >= :current_unique_id AND unique_id < :end_unique_id
+            ORDER BY unique_id
+        """)
+    
+    df = pd.read_sql(query, engine, params={"current_unique_id": current_unique_id, "end_unique_id": end_unique_id})
+    print(df.shape)
+        # Exit the loop if no more records are fetched
+    if df.empty:
+        print(f"No more records found starting from unique_id {current_unique_id}.")
+        
+    print(f"Processing records with id from {current_unique_id} to {end_unique_id - 1}...")
+        
+    # Dictionary to store total connections
+    total_connections_windows = {size: defaultdict(int) for size in range(2, max_window_size + 1)} 
+        
+    # Process each tweet in the batch
+    for tweet_text in df['text']:
+        cleaned_text = clean_and_lemmatize_tweet(tweet_text)
+        # Generate connections using sliding window
+        connections = sliding_window_connections(cleaned_text, max_window_size)
+        
+        for k, connection in connections.items():
+            for word_pair, count in connection.items():
+                total_connections_windows[k][word_pair] += count
+    current_unique_id = end_unique_id
+    print('test')
+    return total_connections_windows
+
+    
+
+def process_tweets_singular(engine, start_unique_id=1, max_window_size=10, batch_size=10000):
+    all_connections = get_connections(engine, start_unique_id, batch_size, max_window_size)
+    print("after get_connect")
     insert_all_data = [
     {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
     for k, connection in all_connections.items()
@@ -145,92 +183,50 @@ def process_all_tweets(engine, all_connections):
         INSERT INTO word_pairs_all_windows (window_size, word1, word2, word_count)
         VALUES (:window_size,:word1, :word2, :word_count)
     """)
+    print("here?")
     try:
         with engine.begin() as conn:
             conn.execute(insert_query, insert_all_data)
             print(f"{len(insert_all_data)} word pairs inserted successfully into word_pairs_all_windows'.")
     except SQLAlchemyError as error:
         print(f"Error inserting data: {error}")
-        
 
+def process_tweet_text(engine, start_unique_id=1, max_window_size=10, batch_size=10000):
 
-
-def process_tweet_text(engine, max_window_size=10):
-    query = text("SELECT text FROM tweets")
-    df = pd.read_sql(query, engine) # TODO: BATCH PROCESS OR APACHE SPARK??
-
-    # Create tweet_text_attention table
-
-
-    # Dictionary to store total connections
-    total_connections_windows = {size: defaultdict(int) for size in range(2, max_window_size + 1)} 
-
-    
-    # Iterate through each tweet's text
-    for tweet_text in df['text']:
-        cleaned_text = clean_and_lemmatize_tweet(tweet_text)
-        # Generate connections using sliding window
-        connections = sliding_window_connections(cleaned_text, max_window_size)
-        
-        for k, connection in connections.items():
-            for word_pair, count in connection.items():
-                total_connections_windows[k][word_pair] += count
-    
-    
+        # Define the range for the batch
+    total_connections_windows = get_connections(engine, start_unique_id, batch_size, max_window_size)
     # Prepare data for insertion
-    
-    #Test to process all tweets into one table
-    process_all_tweets(engine, total_connections_windows)
-
-
-    for k, connection in total_connections_windows.items(): 
+    for k, connection in total_connections_windows.items():
         insert_data = [{'word1': pair[0], 'word2': pair[1], 'word_count': count} for pair, count in connection.items()]
         table_name = f'word_pairs_window_{k}'
-
         if not is_valid_table_name(table_name, max_window_size):
             raise ValueError(f"Invalid table name: {table_name}")
-    # Insert into tweet_text_attention
+        
+        # Insert into the corresponding table
         insert_query = text(f"""
             INSERT INTO {table_name} (word1, word2, word_count)
             VALUES (:word1, :word2, :word_count)
         """)
-
         try:
             with engine.begin() as conn:
                 conn.execute(insert_query, insert_data)
-                print(f"{len(insert_data)} word pairs inserted successfully into {table_name}'.")
+                print(f"{len(insert_data)} word pairs inserted successfully into {table_name}.")
         except SQLAlchemyError as error:
             print(f"Error inserting data: {error}")
-        
-
-# Function to save tweet_text_attention as CSV with timestamp
-
-def save_tweet_text_attention_to_csv(engine):
-    query = text("SELECT * FROM tweet_text_attention")
-    df = pd.read_sql(query, engine)
     
-    # Generate timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = f'tweet_text_attention_{timestamp}.csv'
-
-    # Save to CSV
-    df.to_csv(file_path, index=False)
-    print(f"Table 'tweet_text_attention' saved to {file_path}.")
+    # Move to the next range of unique_id
 
 # Main logic
 if __name__ == '__main__':
-
     print("numpy version: ", np.__version__)
     config = load_config()  # Assuming you have a function that loads config
     engine = connect(config)  # Assuming this function connects to the DB
-    
-    
+
     create_tables(engine, window_size=10)
     create_all_window_size_table(engine)
-
-    # Process tweets with lemmatization
-
-    process_tweet_text(engine)
+    # Example start_unique_id
+    start_unique_id = 1  # Replace with the actual starting unique_id you want to process
     
-    # Save the table to a CSV file with timestamp
-    # save_tweet_text_attention_to_csv(engine)
+    # Process tweets in batches with lemmatization
+    process_tweet_text(engine, start_unique_id, max_window_size=10)
+    process_tweets_singular(engine, start_unique_id, max_window_size=10)

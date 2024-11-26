@@ -1,5 +1,4 @@
-
-from sqlalchemy import  MetaData, Table, Column, BigInteger, Integer, Text, TIMESTAMP, ForeignKey
+from sqlalchemy import MetaData, Table, Column, BigInteger, Integer, Text, TIMESTAMP, text, ForeignKey, String
 from sqlalchemy.exc import SQLAlchemyError
 import json
 from connect import connect
@@ -23,7 +22,8 @@ def create_table(engine):
         Column('reply_count', Integer),
         Column('like_count', Integer),
         Column('quote_count', Integer),
-        Column('created_at', TIMESTAMP)
+        Column('created_at', TIMESTAMP),
+        Column('unique_id', Integer, nullable=False)  # Add unique_id column. Change to BIGINT if ever needed or use some interesting way to process and delete tweets table as needed.
     )
 
     hashtags_table = Table(
@@ -39,12 +39,7 @@ def create_table(engine):
     except SQLAlchemyError as error:
         print(f"Error creating table: {error}")
 
-
-from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, DateTime
-from sqlalchemy.sql import text
-
-
-def unpack_one_row(row):
+def unpack_one_row(row, unique_id):
     tweet_id = row.get('id')
     conversation_id = row.get('conversation_id')
     author_id = row.get('author_id')
@@ -76,19 +71,25 @@ def unpack_one_row(row):
             'like_count': like_count,
             'quote_count': quote_count,
             'created_at': created_at,
+            'unique_id': unique_id,
         },
         'hashtags': hashtag_records
     }
 
-
 def insert_into_db(engine, data):
     try:
         with engine.begin() as conn:
+            # Get the largest unique_id currently in the table
+            result = conn.execute(text("SELECT COALESCE(MAX(unique_id), 0) FROM tweets"))
+            print('här',result)
+            max_unique_id = result.scalar()
+            current_unique_id = max_unique_id + 1  # Increment for the new unique_id
+
             insert_query_tweet = text("""
                 INSERT INTO tweets (tweet_id, conversation_id, author_id, text, 
-                                    retweet_count, reply_count, like_count, quote_count, created_at)
+                                    retweet_count, reply_count, like_count, quote_count, created_at, unique_id)
                 VALUES (:tweet_id, :conversation_id, :author_id, :text, 
-                        :retweet_count, :reply_count, :like_count, :quote_count, :created_at)
+                        :retweet_count, :reply_count, :like_count, :quote_count, :created_at, :unique_id)
             """)
             insert_hashtags_query = text("""
                 INSERT INTO hashtags (tweet_id, hashtag)
@@ -99,7 +100,8 @@ def insert_into_db(engine, data):
 
             # Process each row in one pass
             for row in data:
-                unpacked = unpack_one_row(row)
+                unpacked = unpack_one_row(row, current_unique_id )
+                current_unique_id += 1
                 tweet_records.append(unpacked['tweet'])
                 hashtag_records.extend(unpacked['hashtags'])
 
@@ -112,23 +114,15 @@ def insert_into_db(engine, data):
                 print(f'{len(hashtag_records)} hashtags inserted successfully')
             else:
                 print("No hashtags to insert.")
+            
     except Exception as error:
         print(f'Error inserting data: {error}')
  
-
-
-
-
-  
-
-
-
 
 def load_json(path):
     with open(path, 'r') as file:
         data = json.load(file)
     return data
-
 
 def drop_table(engine):
     metadata = MetaData()
@@ -168,6 +162,7 @@ if __name__ == '__main__':
     engine = connect(config)
     drop_hashtag_table(engine)
     drop_table(engine)
+
     
     create_table(engine)
 
@@ -179,9 +174,7 @@ if __name__ == '__main__':
     insert_into_db(engine, twitter_data)
 
     
-    query = text("""
-    SELECT * FROM tweets;
-    """)
+    query = text('SELECT COALESCE(MAX(unique_id), 0) FROM tweets')
 
     query2 = text("""
     SELECT * FROM hashtags;
