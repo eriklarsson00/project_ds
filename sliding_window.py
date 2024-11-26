@@ -43,12 +43,12 @@ def sliding_window_connections(input_string, max_window_size=10):
 
     return connections_by_window
 
-max_window_size = 4
-test_string = "This is an exmaple of a sliding window over words. This is a test."
+#max_window_size = 4
+#test_string = "This is an exmaple of a sliding window over words. This is a test."
 
 # Get the connections for each window size up to `max_window_size`
-connections_by_window = sliding_window_connections(test_string, max_window_size)
-print(f'hello, {connections_by_window}')
+#connections_by_window = sliding_window_connections(test_string, max_window_size)
+#print(f'hello, {connections_by_window}')
 # Display the results
 #for k, connections in connections_by_window.items():
     #print(f"Window size {k}:")
@@ -66,7 +66,7 @@ def get_all_pairs_for_window_size(k, connections_by_window):
     return dict(combined)
 
 # Example for window size 3
-all_pairs_for_k3 = get_all_pairs_for_window_size(4, connections_by_window)
+#all_pairs_for_k3 = get_all_pairs_for_window_size(4, connections_by_window)
 #print("All pairs for window size 3:", all_pairs_for_k3)
 
 def sliding_window_connections_no_overlap(window_size, input_string):

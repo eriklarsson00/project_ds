@@ -1,4 +1,4 @@
-
+#!pip install psycopg2-binary
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
