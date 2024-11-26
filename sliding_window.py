@@ -1,14 +1,16 @@
 from collections import defaultdict
 
-def sliding_window_connections(max_window_size, input_string):
+def sliding_window_connections(input_string, max_window_size=10):
     # Split the string into words
     words = input_string.split()
     
     # Create a list of dictionaries, one for each window size
-    connections_list = [defaultdict(int) for _ in range(max_window_size - 1)]
+    connections_by_window = {}
     
     # Start with the smallest window size, k = 2, and build up
     for k in range(2, max_window_size + 1):
+       
+        connections = defaultdict(int)
         # Loop through the words with a sliding window of size `k`
         for i in range(len(words) - k + 1):
             window = words[i:i + k]
@@ -19,10 +21,10 @@ def sliding_window_connections(max_window_size, input_string):
                 reverse_pair = (window[1], window[0])
                 
                 # Ensure pairs are stored in one direction
-                if reverse_pair in connections_list[k - 2]:
-                    connections_list[k - 2][word_pair] += connections_list[k - 2].pop(reverse_pair)
+                if reverse_pair in connections:
+                    connections[word_pair] += connections.pop(reverse_pair)
                 else:
-                    connections_list[k - 2][word_pair] += 1
+                    connections[word_pair] += 1
             else:
                 # For larger windows, only add pairs involving the last word in the window
                 last_word = window[-1]
@@ -31,42 +33,41 @@ def sliding_window_connections(max_window_size, input_string):
                 reverse_pair = (last_word, first_word)
                     
                     # Ensure pairs are stored in one direction
-                if reverse_pair in connections_list[k - 2]:
-                    connections_list[k - 2][word_pair] += connections_list[k - 2].pop(reverse_pair)
+                if reverse_pair in connections:
+                    connections[word_pair] += connections.pop(reverse_pair)
                 else:
-                    connections_list[k - 2][word_pair] += 1
+                    connections[word_pair] += 1
+        connections_by_window[k] = dict(connections)
 
     # Convert each defaultdict to a regular dict for easier readability
-    result = [dict(connection) for connection in connections_list]
-    return result
+
+    return connections_by_window
 
 max_window_size = 4
 test_string = "This is an exmaple of a sliding window over words. This is a test."
 
 # Get the connections for each window size up to `max_window_size`
-connections_by_window = sliding_window_connections(max_window_size, test_string)
+connections_by_window = sliding_window_connections(test_string, max_window_size)
 print(f'hello, {connections_by_window}')
 # Display the results
-for k, connections in enumerate(connections_by_window, start=2):
-    print(f"Window size {k}:")
-    print(connections)
-    print()
+#for k, connections in connections_by_window.items():
+    #print(f"Window size {k}:")
+    #print(connections)
+    #print()
 
 
 from collections import Counter
 
 def get_all_pairs_for_window_size(k, connections_by_window):
     combined = Counter()
-    for i in range(k - 1):
-        combined.update(connections_by_window[i])
+    for window_size in range(2, k + 1):  # Start at 2 and go up to `k` (inclusive)
+        if window_size in connections_by_window:
+            combined.update(connections_by_window[window_size])
     return dict(combined)
 
 # Example for window size 3
 all_pairs_for_k3 = get_all_pairs_for_window_size(4, connections_by_window)
-print("All pairs for window size 3:", all_pairs_for_k3)
-
-
-
+#print("All pairs for window size 3:", all_pairs_for_k3)
 
 def sliding_window_connections_no_overlap(window_size, input_string):
     # Split the input string into words
@@ -97,3 +98,8 @@ def sliding_window_connections_no_overlap(window_size, input_string):
     # Remove any pairs with zero counts (if they were mistakenly added)
     return {pair: count for pair, count in connections.items() if count > 0}
 
+
+if __name__ == '__main__':
+    input_str = "Tjabba tjena hallå anders karsslon som dansar i red dead redeamtion"
+    result = sliding_window_connections(input_str)
+    print(result)

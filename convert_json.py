@@ -1,13 +1,17 @@
-from sqlalchemy import MetaData, Table, Column, BigInteger, Integer, Text, TIMESTAMP, text
+from sqlalchemy import MetaData, Table, Column, BigInteger, Integer, Text, TIMESTAMP, text, ForeignKey, String
 from sqlalchemy.exc import SQLAlchemyError
 import json
 from connect import connect
 from config import load_config
 import pandas as pd
 
+
+
+
+
 def create_table(engine):
+ 
     metadata = MetaData()
-    
     tweets_table = Table(
         'tweets', metadata,
         Column('tweet_id', BigInteger, primary_key=True),
@@ -21,10 +25,17 @@ def create_table(engine):
         Column('created_at', TIMESTAMP),
         Column('unique_id', Integer, nullable=False)  # Add unique_id column. Change to BIGINT if ever needed or use some interesting way to process and delete tweets table as needed.
     )
+
+    hashtags_table = Table(
+        'hashtags', metadata,
+        Column('id', Integer, primary_key=True, autoincrement=True),
+        Column('tweet_id', BigInteger, ForeignKey('tweets.tweet_id'), nullable=False),
+        Column('hashtag', String(255), nullable=False)
+    )
     
     try:
         metadata.create_all(engine)  
-        print("Table created successfully.")
+        print("Tables  created successfully.")
     except SQLAlchemyError as error:
         print(f"Error creating table: {error}")
 
@@ -40,43 +51,73 @@ def unpack_one_row(row, unique_id):
     quote_count = public_metrics.get('quote_count', 0)
     created_at = row.get('created_at')
  
+
+    entities = row.get('entities', {})
+    hashtags = entities.get('hashtags', [])
+    hashtag_records = [
+        {'tweet_id': tweet_id, 'hashtag': hashtag.get('tag')}
+        for hashtag in hashtags if 'tag' in hashtag
+    ]
+
+
     return {
-        'tweet_id': tweet_id,
-        'conversation_id': conversation_id,
-        'author_id': author_id,
-        'text': text,
-        'retweet_count': retweet_count,
-        'reply_count': reply_count,
-        'like_count': like_count,
-        'quote_count': quote_count,
-        'created_at': created_at,
-        'unique_id': unique_id  # Add unique_id to the returned dictionary
+        'tweet': {
+            'tweet_id': tweet_id,
+            'conversation_id': conversation_id,
+            'author_id': author_id,
+            'text': text,
+            'retweet_count': retweet_count,
+            'reply_count': reply_count,
+            'like_count': like_count,
+            'quote_count': quote_count,
+            'created_at': created_at,
+            'unique_id': unique_id,
+        },
+        'hashtags': hashtag_records
     }
 
 def insert_into_db(engine, data):
     try:
         with engine.begin() as conn:
             # Get the largest unique_id currently in the table
-            result = conn.execute("SELECT COALESCE(MAX(unique_id), 0) FROM tweets")
+            result = conn.execute(text("SELECT COALESCE(MAX(unique_id), 0) FROM tweets"))
+            print('här',result)
             max_unique_id = result.scalar()
             current_unique_id = max_unique_id + 1  # Increment for the new unique_id
 
-            insert_query = text("""
+            insert_query_tweet = text("""
                 INSERT INTO tweets (tweet_id, conversation_id, author_id, text, 
                                     retweet_count, reply_count, like_count, quote_count, created_at, unique_id)
                 VALUES (:tweet_id, :conversation_id, :author_id, :text, 
                         :retweet_count, :reply_count, :like_count, :quote_count, :created_at, :unique_id)
             """)
+            insert_hashtags_query = text("""
+                INSERT INTO hashtags (tweet_id, hashtag)
+                VALUES (:tweet_id, :hashtag)
+            """)
+            tweet_records = []
+            hashtag_records = []
 
-            records = []
+            # Process each row in one pass
             for row in data:
-                records.append(unpack_one_row(row, current_unique_id))
-                current_unique_id += 1  # Increment the unique_id for the next tweet
+                unpacked = unpack_one_row(row, current_unique_id )
+                current_unique_id += 1
+                tweet_records.append(unpacked['tweet'])
+                hashtag_records.extend(unpacked['hashtags'])
 
-            conn.execute(insert_query, records)
-            print(f'{len(records)} records inserted successfully')
+
+            conn.execute(insert_query_tweet, tweet_records)
+
+            print(f'{len(tweet_records)} records inserted successfully')
+            if hashtag_records:
+                conn.execute(insert_hashtags_query, hashtag_records)
+                print(f'{len(hashtag_records)} hashtags inserted successfully')
+            else:
+                print("No hashtags to insert.")
+            
     except Exception as error:
         print(f'Error inserting data: {error}')
+ 
 
 def load_json(path):
     with open(path, 'r') as file:
@@ -99,15 +140,49 @@ def drop_table(engine):
     else:
         print("Table 'tweets' does not exist.")
 
+def drop_hashtag_table(engine):
+    metadata = MetaData()
+    
+    # Reflect the database to access the 'tweets' table
+    metadata.reflect(bind=engine)
+    hashtag_table = metadata.tables.get('hashtags')
+    
+    if hashtag_table is not None:
+        try:
+            hashtag_table.drop(engine)
+            print("Table 'hashtag' dropped successfully.")
+        except SQLAlchemyError as error:
+            print(f"Error dropping table: {error}")
+    else:
+        print("Table 'tweets' does not exist.")
+
 # 6. Main logic
 if __name__ == '__main__':
     config = load_config()
     engine = connect(config)
+    drop_hashtag_table(engine)
     drop_table(engine)
+
+    
     create_table(engine)
 
-    path = 'data/aftonbladet.json'
+
+    path = 'data/Svd.json'
     data = load_json(path)
 
     twitter_data = data['data']  
     insert_into_db(engine, twitter_data)
+
+    
+    query = text('SELECT COALESCE(MAX(unique_id), 0) FROM tweets')
+
+    query2 = text("""
+    SELECT * FROM hashtags;
+    """)
+
+    df = pd.read_sql(query, engine)
+    print(df.head())
+    df2 = pd.read_sql(query2, engine)
+    print(df2.head())
+    
+  
