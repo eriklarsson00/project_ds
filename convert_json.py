@@ -167,22 +167,22 @@ if __name__ == '__main__':
     create_table(engine)
 
 
-    path = 'data/Svd.json'
-    data = load_json(path)
+  #  path = 'data/Svd.json'
+ #   data = load_json(path)
+#
+  #  twitter_data = data['data']  
+ #   insert_into_db(engine, twitter_data)
+#
+  #  
+ #   query = text('SELECT COALESCE(MAX(unique_id), 0) FROM tweets')
+#
+    #query2 = text("""
+    #SELECT * FROM hashtags;
+    #""")
 
-    twitter_data = data['data']  
-    insert_into_db(engine, twitter_data)
-
-    
-    query = text('SELECT COALESCE(MAX(unique_id), 0) FROM tweets')
-
-    query2 = text("""
-    SELECT * FROM hashtags;
-    """)
-
-    df = pd.read_sql(query, engine)
-    print(df.head())
-    df2 = pd.read_sql(query2, engine)
-    print(df2.head())
+    #df = pd.read_sql(query, engine)
+    #print(df.head())
+    #df2 = pd.read_sql(query2, engine)
+    #print(df2.head())
     
   

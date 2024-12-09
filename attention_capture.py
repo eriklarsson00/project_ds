@@ -1,17 +1,19 @@
-from sqlalchemy import Table, Column, String, Integer, MetaData, text, inspect,Index
+from sqlalchemy import Table, Column, String, Integer, MetaData, text, inspect,Index, UniqueConstraint
 from sqlalchemy.exc import SQLAlchemyError
 from collections import defaultdict
 import pandas as pd
 from connect import connect
 from config import load_config
 from sliding_window import sliding_window_connections  # Import the sliding window function
-from datetime import datetime  
-import numpy as np# Import datetime for timestamp
+import numpy as np
 import re
 import stanza
 import time
 stanza.download('sv')  # Download the Swedish model if not already downloaded
 nlp = stanza.Pipeline('sv', processors='tokenize,lemma', tokenize_pretokenized=False)  # Initialize Stanza pipeline for Swedish
+
+
+
 def clean_and_lemmatize_tweets(tweets, remove_urls=True, remove_special_chars=True, remove_digits=True):
     cleaned_tweets = []
     for tweet in tweets:
@@ -81,13 +83,15 @@ def create_all_window_size_table(engine):
         Column('word1', String, nullable=False),
         Column('word2', String, nullable=False),
         Column('word_count', Integer, nullable=False),
-        Index('ix_sliding_window_size', 'window_size')
+        Index('ix_sliding_window_size', 'window_size'),
+        UniqueConstraint('window_size', 'word1', 'word2', name='uix_word_pairs')  # Ensure uniqueness
     )
     try:
         metadata.create_all(engine)  # Create the table
         print(f"Table: {table_name} created successfully.")
     except SQLAlchemyError as error:
         print(f"Error creating table: {error}")
+
 
 
 def create_tweet_text_attention_table(engine, window_size):
@@ -151,7 +155,7 @@ def get_connections(engine, start_unique_id=1, batch_size=10000, max_window_size
         print(f"No more records found starting from unique_id {start_unique_id}.")
         return None  # Signal no more data
 
-    print(f"Processing records with id from {start_unique_id} to {end_unique_id - 1}...")
+    #print(f"Processing records with id from {start_unique_id} to {end_unique_id - 1}...")
 
     # Dictionary to store total connections
     total_connections_windows = {size: defaultdict(int) for size in range(2, max_window_size + 1)} 
@@ -176,73 +180,69 @@ def get_connections(engine, start_unique_id=1, batch_size=10000, max_window_size
     return total_connections_windows
 
 
-def process_tweets_singular(engine, start_unique_id=1, batch_size=10000, max_window_size=10):
+def process_tweets_all(engine, start_unique_id=1, batch_size=10000, max_window_size=10):
     while True:
-      
         start_time = time.time()
-        total_connections, total_time_clean, total_time_sliding= get_connections(engine, start_unique_id, batch_size, max_window_size)
-     
-        elapsed_time = end_time - start_time  # Calculate elapsed time
+        total_connections = get_connections(engine, start_unique_id, batch_size, max_window_size)
+        elapsed_time = time.time() - start_time
         print(f"Batch processed in {elapsed_time:.2f} seconds.")
-      
-        # Exit loop if no more data
+
         if total_connections is None:
-            print("All tweets processed.")
             break
-        print('\n')
-        print(f'insert data from batch to db')
+
+        # Insert or update data in 'word_pairs_all_windows'
         insert_all_data = [
             {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
             for k, connection in total_connections.items()
             for pair, count in connection.items()
         ]
+
         insert_query = text("""
             INSERT INTO word_pairs_all_windows (window_size, word1, word2, word_count)
             VALUES (:window_size, :word1, :word2, :word_count)
+            ON CONFLICT (window_size, word1, word2)  -- Ensure a unique constraint exists on these columns
+            DO UPDATE SET word_count = word_pairs_all_windows.word_count + EXCLUDED.word_count
         """)
 
         try:
             with engine.begin() as conn:
-                start_time = time.time()
                 conn.execute(insert_query, insert_all_data)
-                end_time = time.time()
-                elapsed_time = end_time - start_time
-                print('insertion', elapsed_time)
-                print(f"{len(insert_all_data)} word pairs inserted successfully.")
+                print(f"{len(insert_all_data)} word pairs inserted/updated successfully into word_pairs_all_windows.")
         except SQLAlchemyError as error:
-            print(f"Error inserting data: {error}")
+            print(f"Error inserting/updating data: {error}")
 
         # Increment the starting point for the next batch
         start_unique_id += batch_size
-        print(f"Moving to the next batch starting at unique_id {start_unique_id}.")
 
 
 
 
-def process_tweet_text(engine, start_unique_id=1, max_window_size=10, batch_size=10000):
 
-        # Define the range for the batch
+
+def process_tweets_batch(engine, start_unique_id=1, max_window_size=10, batch_size=10000):
     total_connections_windows = get_connections(engine, start_unique_id, batch_size, max_window_size)
-    # Prepare data for insertion
+
     for k, connection in total_connections_windows.items():
         insert_data = [{'word1': pair[0], 'word2': pair[1], 'word_count': count} for pair, count in connection.items()]
         table_name = f'word_pairs_window_{k}'
+
         if not is_valid_table_name(table_name, max_window_size):
             raise ValueError(f"Invalid table name: {table_name}")
-        
-        # Insert into the corresponding table
+
+        # Upsert query: INSERT or UPDATE based on existing data
         insert_query = text(f"""
             INSERT INTO {table_name} (word1, word2, word_count)
             VALUES (:word1, :word2, :word_count)
+            ON CONFLICT (word1, word2)  -- Assuming word1, word2 is the unique key
+            DO UPDATE SET word_count = {table_name}.word_count + EXCLUDED.word_count
         """)
+
         try:
             with engine.begin() as conn:
                 conn.execute(insert_query, insert_data)
-                print(f"{len(insert_data)} word pairs inserted successfully into {table_name}.")
+                print(f"{len(insert_data)} word pairs inserted/updated successfully into {table_name}.")
         except SQLAlchemyError as error:
-            print(f"Error inserting data: {error}")
-    
-    # Move to the next range of unique_id
+            print(f"Error inserting/updating data: {error}")
 
 # Main logic
 if __name__ == '__main__':
@@ -260,4 +260,4 @@ if __name__ == '__main__':
     print('\n')
     print('proccesing tweets into singular table')
     #process_tweet_text(engine, start_unique_id, max_window_size=10)
-    process_tweets_singular(engine, start_unique_id, max_window_size=10, batch_size=10000)
+    process_tweets_all(engine, start_unique_id, max_window_size=10, batch_size=1000)
