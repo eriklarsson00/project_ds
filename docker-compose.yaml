@@ -74,18 +74,17 @@ x-airflow-common:
     # AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
     PYTHONPATH: /opt/airflow
   volumes:
-    - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
-    - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
-    - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
-    - ${AIRFLOW_PROJ_DIR:-.}/database.ini:/opt/airflow/database.ini
-    - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-    - ${AIRFLOW_PROJ_DIR:-.}/config.py:/opt/airflow/config.py
-    - ${AIRFLOW_PROJ_DIR:-.}/connect.py:/opt/airflow/connect.py
-    - ${AIRFLOW_PROJ_DIR:-.}/convert_json.py:/opt/airflow/convert_json.py
-    - ${AIRFLOW_PROJ_DIR:-.}/processTweets.py:/opt/airflow/processTweets.py
-    - ${AIRFLOW_PROJ_DIR:-.}/attention_capture.py:/opt/airflow/attention_capture.py
-    - ${AIRFLOW_PROJ_DIR:-.}/tweets:/opt/airflow/tweets
-    - ${AIRFLOW_PROJ_DIR:-.}/:/opt/airflow/
+    - ${AIRFLOW_PROJ_DIR:-.}/code/dags:/opt/airflow/dags
+    - ${AIRFLOW_PROJ_DIR:-.}/airflow/logs:/opt/airflow/logs
+    - ${AIRFLOW_PROJ_DIR:-.}/airflow/config:/opt/airflow/config
+    - ${AIRFLOW_PROJ_DIR:-.}/airflow/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/code/DBController.py:/opt/airflow/DBController.py
+    - ${AIRFLOW_PROJ_DIR:-.}/code/Lemmatization.py:/opt/airflow/Lemmatization.py
+    - ${AIRFLOW_PROJ_DIR:-.}/code/ProcessController.py:/opt/airflow/ProcessController.py
+    - ${AIRFLOW_PROJ_DIR:-.}/config/database.ini:/opt/airflow/config/database.ini
+    - ${AIRFLOW_PROJ_DIR:-.}/tweets:/opt/airflow/tweets 
+    - ${AIRFLOW_PROJ_DIR:-.}/AirflowBatches:/opt/airflow/AirflowBatches
+  
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -256,7 +255,7 @@ services:
       _PIP_ADDITIONAL_REQUIREMENTS: ''
     user: "0:0"
     volumes:
-      - ${AIRFLOW_PROJ_DIR:-.}:/sources
+      - ${AIRFLOW_PROJ_DIR:-.}/airflow:/sources
 
   airflow-cli:
     <<: *airflow-common
