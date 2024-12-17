@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import json
 import pandas as pd
 
-def LoadConfig(filename='config/database.ini', section='postgresql'): 
+def LoadConfig(filename='../config/database.ini', section='postgresql'): 
     #Copy this declaration and definition for other DB types supported by airflow, superset and sqlalchemy
     parser = ConfigParser()
     parser.read(filename)
@@ -65,41 +65,41 @@ def CreateAllTables(engine):
         UniqueConstraint('window_size', 'word1', 'word2', name='uix_word_pairs')  # Ensure uniqueness
     )
     try:
-        metaData.create_all(engine)  
+        metaData.create_all(engine, checkfirst=True)  
         print("Tables created successfully.")
     except SQLAlchemyError as error:
         print(f"Error creating table: {error}")
 
 
 def DropAllTables(engine):
-    
-    #Code below is done to wipe everything if needed. Ordered in relation to Dependency among them
+    """
+    Drop all tables, indexes, and constraints in the database schema.
+    """
     metaData = MetaData()
-
-    # Reflect the database to access the 'tweets' table
     metaData.reflect(bind=engine)
 
-    TweetsTable = metaData.tables.get('tweets')
-    HashtagsTable = metaData.tables.get('hashtags')
-    WordPairTable = metaData.tables.get('wordpairs')
+    try:
+        # Drop tables in reverse order to resolve dependencies
+        for table in reversed(metaData.sorted_tables):
+            print(f"Dropping table: {table.name}")
+            table.drop(engine, checkfirst=True)
+        
+        # Explicitly drop all remaining indexes
+        with engine.connect() as conn:
+            indexes = conn.execute(text("""
+                SELECT indexname 
+                FROM pg_indexes 
+                WHERE schemaname = 'public';
+            """)).fetchall()
 
-    if HashtagsTable is not None:
-        try:
-            HashtagsTable.drop(engine)
-        except SQLAlchemyError as error:
-            print(f"Error dropping table: {error}")
+            for index in indexes:
+                index_name = index[0]
+                print(f"Dropping index: {index_name}")
+                conn.execute(text(f"DROP INDEX IF EXISTS {index_name}"))
 
-    if WordPairTable is not None:
-        try:
-            WordPairTable.drop(engine)
-        except SQLAlchemyError as error:
-            print(f"Error dropping table: {error}")
-
-    if TweetsTable is not None:
-        try:
-            TweetsTable.drop(engine)
-        except SQLAlchemyError as error:
-            print(f"Error dropping table: {error}")
+        print("All tables and indexes dropped successfully.")
+    except SQLAlchemyError as error:
+        print(f"Error while dropping tables or indexes: {error}")
 
 
 def InsertToDBFromJSON(engine, data, BatchName, batch_size=100):
@@ -201,3 +201,4 @@ if __name__ == '__main__':
         df = pd.read_sql(ReadQuery, engine)
         print(df.head())
   
+
