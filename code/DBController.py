@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 import json
 import pandas as pd
 
-def LoadConfig(filename='../config/database.ini', section='postgresql'): 
+def LoadConfig(filename='config/database.ini', section='postgresql'): 
     #Copy this declaration and definition for other DB types supported by airflow, superset and sqlalchemy
     parser = ConfigParser()
     parser.read(filename)
