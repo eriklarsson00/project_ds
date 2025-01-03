@@ -212,6 +212,7 @@ def ReadBatchFromDB(engine, batch_name):
                             SELECT text FROM tweets
                             WHERE batch_name LIKE :batch_name
                             """)
+        batch_name = batch_name.lower()
         parameters = {"batch_name": f"%{batch_name}%"}
     
     DataFrame = pd.read_sql(FilterQuery, engine, params=parameters)

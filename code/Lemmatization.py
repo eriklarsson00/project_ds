@@ -7,7 +7,7 @@ import stanza
 MinimumWindow = 2
 MaximumWindow = 10
 
-def LoadModel(language='sv', processors='tokenize,pos,lemma'):
+def LoadModel(language='sv', processors='tokenize,lemma'):
     """
     Initialize the Stanza model locally.
     """
@@ -93,7 +93,7 @@ def SlidingWindowWithOverlap(InputText):
 if __name__ == '__main__':
     config = LoadConfig()
     engine = ConnectDB(config)
-    DataFrame = ReadBatchFromDB(engine, "aftonbladet")
+    DataFrame = ReadBatchFromDB(engine, "aftonbladet1")
     print("Hello")
     print(DataFrame)
     InputText = DataFrame['text'].tolist()
