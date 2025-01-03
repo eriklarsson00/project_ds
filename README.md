@@ -71,4 +71,8 @@ project-name/
 Made slidingWindowWithOverlap function in Lemmatization.py for the data processing pipeline. Worked with Erik with hashtagNetwork.py, Erik was main contributor.
 
 ### Erik Larsson
-created db connection, insertion logic for sliding window connection. worked on hashtag network with Elis. created Dag process for hashtag network. Also helped with the main processing pipeline. however the earlier iterations and not the final version. Helped with debugging the main processing pipeline. Worked with the sql in Superset and and created plots for the processed data. 
+created db connection, insertion logic for sliding window connection. worked on hashtag network with Elis. created Dag process for hashtag network. Also helped with the main processing pipeline. however the earlier iterations and not the final version. Helped lemmatization and cleanup logic and with debugging the main processing pipeline. Worked with the sql in Superset and and created plots for the processed data. 
+
+
+### Balasubramani V S
+Created the airflow batch pipeline for the twitter data in airflow, restructured all code to be compatible with airflow. Helped with debugging the insertion logic for sliding window connections and the sliding window logic. Also made the lemmatization preprocessing and cleanup
