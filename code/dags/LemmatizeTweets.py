@@ -1,45 +1,41 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.providers.postgres.operators.postgres import PostgresOperator
-from datetime import datetime
+from airflow.utils.task_group import TaskGroup
+from datetime import datetime, timedelta
+import os
+import shutil
+import re
+from ProcessController import ProcessFolder
+from DBController import LoadConfig, ConnectDB, ReadBatchFromDB, InsertWordPairsToDB
+from Lemmatization import CleanInputText, ProcessInputText, GetConnections
+MaxBatchSize = 20 * 1024 * 1024
+AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 
-# Your Python functions here (e.g., CleanInputText, SlidingWindowWithOverlap, etc.)
-
-
-def LemmatizeFromDB(BatchName, **kwargs):
+def ReadBatchData(FolderPath, BatchName, **kwargs):
     config = LoadConfig()
     engine = ConnectDB(config)
-    ProcessedCount = 0
-    ProcessedCount = InsertConnectionsToDB(engine, BatchName)
-    print(f"Preprocessed and lemmatized {ProcessedCount} tweets from batch {BatchName}")
+    if len(os.listdir(FolderPath)) == 0:
+        DataFrame = ReadBatchFromDB(engine, BatchName)
+    else:
+        DataFrame = ProcessFolder(FolderPath, BatchName, engine, mode="Lemmatize")
+    return DataFrame['text'].tolist()
 
-def fetch_tweets_from_db():
-    # Function to fetch tweets from DB (based on batch_name if required)
-    pass
+def PreProcessText(InputText):
+    CleanedText = CleanInputText(InputText)
+    return ProcessInputText(CleanedText)
 
-def clean_tweets():
-    # Function to clean tweets
-    pass
-
-def lemmatize_tweets():
-    # Function to lemmatize tweets
-    pass
-
-def tokenize_tweets():
-    # Function to tokenize tweets
-    pass
-
-def sliding_window_analysis():
-    # Function to perform sliding window analysis
-    pass
-
-def insert_word_pairs_to_db():
-    # Function to insert word pairs into DB
-    pass
+def WriteConnections(engine, InputText):
+    AllConnections = GetConnections(InputText)
+    InsertData =  [
+            {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
+            for k, connection in AllConnections.items()
+            for pair, count in connection.items()
+        ]
+    InsertWordPairsToDB(engine, InsertData)
 
 # Define the DAG
 dag = DAG(
-    'tweet_word_pairs_pipeline',
+    'Lemmatization of Tweets',
     default_args={
         'owner': 'airflow',
         'retries': 1,
@@ -52,41 +48,23 @@ dag = DAG(
 )
 
 # Define tasks
-task1 = PythonOperator(
-    task_id='fetch_tweets',
-    python_callable=fetch_tweets_from_db,
+ReadTask = PythonOperator(
+    task_id='FetchTweets',
+    python_callable=ReadBatchData,
     dag=dag,
 )
 
-task2 = PythonOperator(
-    task_id='clean_tweets',
-    python_callable=clean_tweets,
+ProcessTask = PythonOperator(
+    task_id='PreprocessTweetText',
+    python_callable=PreProcessText,
     dag=dag,
 )
 
-task3 = PythonOperator(
-    task_id='lemmatize_tweets',
-    python_callable=lemmatize_tweets,
-    dag=dag,
-)
-
-task4 = PythonOperator(
-    task_id='tokenize_tweets',
-    python_callable=tokenize_tweets,
-    dag=dag,
-)
-
-task5 = PythonOperator(
-    task_id='sliding_window_analysis',
-    python_callable=sliding_window_analysis,
-    dag=dag,
-)
-
-task6 = PythonOperator(
-    task_id='insert_word_pairs',
-    python_callable=insert_word_pairs_to_db,
+WriteTask = PythonOperator(
+    task_id='ForgeConnections',
+    python_callable=WriteConnections,
     dag=dag,
 )
 
 # Define task dependencies (ordering)
-task1 >> task2 >> task3 >> task4 >> task5 >> task6
+ReadTask >> ProcessTask >> WriteTask

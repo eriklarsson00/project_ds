@@ -231,7 +231,6 @@ def get_cooccurrence_data(engine):
         print(f"Error fetching cooccurrence data: {e}")
         return pd.DataFrame()
 
-# Main execution
 if __name__ == '__main__':
     config = LoadConfig(filename='../database.ini')
     engine = ConnectDB(config)

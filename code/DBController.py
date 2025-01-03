@@ -5,6 +5,7 @@ from sqlalchemy import MetaData, Index, UniqueConstraint, Table, Column, BigInte
 from sqlalchemy.exc import SQLAlchemyError
 import json
 import pandas as pd
+from ProcessController import LoadJSONFile
 
 def LoadConfig(filename='config/database.ini', section='postgresql'): 
     #Copy this declaration and definition for other DB types supported by airflow, superset and sqlalchemy
@@ -102,7 +103,7 @@ def DropAllTables(engine):
         print(f"Error while dropping tables or indexes: {error}")
 
 
-def InsertToDBFromJSON(engine, data, BatchName, batch_size=100):
+def InsertToDBFromJSON(engine, data, BatchName, BatchSize=10000):
     try:
         with engine.begin() as conn:
            #Tweets table contains the entire tweet extracted from the json
@@ -130,8 +131,8 @@ def InsertToDBFromJSON(engine, data, BatchName, batch_size=100):
                 Hashtags.extend(RowData['hashtags'])
             conn.execute(InsertTweetsQuery, Tweets)
 
-            for i in range(0, len(Hashtags), batch_size):
-                batch = Hashtags[i:i + batch_size]
+            for i in range(0, len(Hashtags), BatchSize):
+                batch = Hashtags[i:i + BatchSize]
                 if batch:
                     conn.execute(InsertHashtagsQuery, batch)
             
@@ -177,10 +178,38 @@ def UnpackOneRow(row):
         'hashtags': hashtag_records
     }
 
-def LoadJSONFile(file_path):
-    with open(file_path, 'r') as file:
-        data = json.load(file)
-    return data
+def InsertWordPairsToDB(engine, InsertData):
+    
+    InsertQuery = text( """
+                        INSERT INTO wordpairs (window_size, word1, word2, word_count)
+                        VALUES (:window_size, :word1, :word2, :word_count)
+                        ON CONFLICT (window_size, word1, word2)  -- Ensure a unique constraint exists on these columns
+                        DO UPDATE SET word_count = wordpairs.word_count + EXCLUDED.word_count
+                        """)
+    try:
+        with engine.begin() as conn:
+            conn.execute(InsertQuery, InsertData)
+            
+    except SQLAlchemyError as error:
+            print(f"Error inserting/updating data: {error}")
+
+
+def ReadBatchFromDB(engine, batch_name):
+    if batch_name == "None":
+        FilterQuery = text( """
+                            SELECT text FROM tweets
+                            """)
+        parameters = {}
+
+    else:
+        FilterQuery = text( """
+                            SELECT text FROM tweets
+                            WHERE batch_name = :batch_name
+                            """)
+        parameters = {"batch_name": batch_name}
+    
+    DataFrame = pd.read_sql(FilterQuery, engine, params=parameters)
+    return DataFrame
 
 if __name__ == '__main__':
     
