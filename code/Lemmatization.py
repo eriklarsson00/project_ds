@@ -9,7 +9,7 @@ import stanza
 # Redis connection
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
-# Parameters
+# Parameters for sliding window size
 MinimumWindow = 2
 MaximumWindow = 10
 
@@ -29,6 +29,7 @@ def LoadModel(language='sv', processors='tokenize,pos,lemma'):
         redis_client.set(model_key, pickle.dumps(model))
     return model
 
+#Clean tweets by removing URLs, special characters, and digits, and normalize text.
 def CleanInputText(tweets, remove_urls=True, remove_special_chars=True, remove_digits=True):
     CleanedTweets = []
     for tweet in tweets:
@@ -43,6 +44,7 @@ def CleanInputText(tweets, remove_urls=True, remove_special_chars=True, remove_d
         CleanedTweets.append(tweet)
     return CleanedTweets
 
+# Process tweets using the Stanza model to lemmatize and clean the text.
 def ProcessInputText(tweets, model):
     docs = model('\n'.join(tweets)).sentences
     CleanedLemmatizedText = [
@@ -51,6 +53,7 @@ def ProcessInputText(tweets, model):
     ]
     return CleanedLemmatizedText
 
+# Extract word co-occurrence connections for different sliding window sizes.
 def GetConnections(InputText, MinimumWindow=MinimumWindow, MaximumWindow=MaximumWindow):
     AllConnections = {size: defaultdict(int) for size in range(MinimumWindow, MaximumWindow + 1)}
     for Text in InputText:
@@ -60,6 +63,7 @@ def GetConnections(InputText, MinimumWindow=MinimumWindow, MaximumWindow=Maximum
                 AllConnections[k][word_pair] += count
     return AllConnections
 
+# Main processing pipeline for a batch: clean, process, and extract connections.
 def ProcessBatch(engine, batch_name):
     DataFrame = ReadBatchFromDB(engine, batch_name)
     InputText = DataFrame['text'].tolist()
@@ -79,6 +83,7 @@ def ProcessBatch(engine, batch_name):
     ]
     return InsertData
 
+# Generate word connections using a sliding window with overlapping words. The function makes sure that the same word pair is not counted twice.
 def SlidingWindowWithOverlap(InputText):
     words = InputText.split()
     connections_by_window = {}
@@ -106,6 +111,9 @@ def SlidingWindowWithOverlap(InputText):
     return connections_by_window
 
 if __name__ == '__main__':
-    config = LoadConfig()  # Assuming you have a function that loads config
-    engine = ConnectDB(config)  # Assuming this function connects to the DB
+    # Load configuration and connect to the database
+    config = LoadConfig()  
+    engine = ConnectDB(config)
+
+    # Process a specific batch from the database, in this case aftonbladet
     ProcessBatch(engine, "aftonbladet")

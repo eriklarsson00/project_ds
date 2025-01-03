@@ -84,6 +84,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/config/database.ini:/opt/airflow/config/database.ini
     - ${AIRFLOW_PROJ_DIR:-.}/tweets:/opt/airflow/tweets 
     - ${AIRFLOW_PROJ_DIR:-.}/AirflowBatches:/opt/airflow/AirflowBatches
+    - ${AIRFLOW_PROJ_DIR:-.}/code/hashtagNetwork.py:/opt/airflow/hashtagNetwork.py
   
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
