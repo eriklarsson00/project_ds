@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from ProcessController import ProcessFolder
 from DBController import LoadConfig, ConnectDB, ReadBatchFromDB, InsertWordPairsToDB
 from Lemmatization import CleanInputText, ProcessInputText, GetConnections, LoadModel
+import os
 
 MaxBatchSize = 20 * 1024 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'

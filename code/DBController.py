@@ -5,7 +5,13 @@ from sqlalchemy import MetaData, Index, UniqueConstraint, Table, Column, BigInte
 from sqlalchemy.exc import SQLAlchemyError
 import json
 import pandas as pd
-from ProcessController import LoadJSONFile
+
+
+def LoadJSONFile(file_path):
+    with open(file_path, 'r') as file:
+        data = json.load(file)
+    return data
+
 
 def LoadConfig(filename='config/database.ini', section='postgresql'): 
     #Copy this declaration and definition for other DB types supported by airflow, superset and sqlalchemy

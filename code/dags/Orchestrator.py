@@ -1,5 +1,6 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.task_group import TaskGroup
 from datetime import datetime, timedelta
 import os
@@ -143,6 +144,7 @@ with DAG(
 ) as dag:
     task_enable_batch = {}
     task_process_batch = {}
+    task_lemmatize_batch = {}
     TaskGroups = {}
     AllData = []
     DataDir = '/opt/airflow/tweets'
@@ -180,4 +182,13 @@ with DAG(
                 queue='default',
                 task_group=TaskGroups[TweetFolder]
             )
+            task_lemmatize_batch[folder] = TriggerDagRunOperator(
+                task_id=f'Lemmatize_Batch_For_{folder}',
+                trigger_dag_id='Lemmatization_of_Tweets',
+                conf={'FolderPath': FolderPath, 'BatchName': folder},
+                task_group=TaskGroups[folder],
+                queue='lemmatize_queue',
+                wait_for_completion=True,
+            )
             task_process_batch[folder].set_upstream(task_enable_batch[TweetFolder])
+            task_lemmatize_batch[folder].set_upstream(task_enable_batch[TweetFolder])
