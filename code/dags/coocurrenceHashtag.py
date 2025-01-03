@@ -4,7 +4,7 @@ from airflow.providers.postgres.operators.postgres import PostgresOperator
 from datetime import datetime, timedelta
 from hashtagNetwork import fetch_hashtags, build_cooccurence_network
 from DBController import LoadConfig, ConnectDB
-#code written by erik
+
 # Load configuration and connect to the database
 config = LoadConfig()
 engine = ConnectDB(config)
