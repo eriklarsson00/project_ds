@@ -14,7 +14,11 @@ import pandas as pd
 
 from sqlalchemy import Table, Column, MetaData, String, Integer, PrimaryKeyConstraint
 
-#code written by Erik
+
+
+#This is code for creating a co-occurrence network from the hashtags in the tweets. Purpose is as proof of concept that network analysis can be conducted on the data.
+
+# Create the cooccurrence_network table
 def create_cooccurrence_table(engine):
     """
     Create table for cooccurance Network
@@ -239,6 +243,7 @@ def get_cooccurrence_data(engine):
         print(f"Error fetching cooccurrence data: {e}")
         return pd.DataFrame()
 
+# Main function to demonstrate the workflow
 if __name__ == '__main__':
     config = LoadConfig(filename='../database.ini')
     engine = ConnectDB(config)
@@ -264,3 +269,4 @@ if __name__ == '__main__':
     #df =  get_cooccurrence_data(engine=engine)
     #print(df)
     #plot_network(net)
+
