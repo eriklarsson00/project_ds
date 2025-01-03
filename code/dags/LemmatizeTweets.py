@@ -12,10 +12,7 @@ AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 def ReadBatchData(FolderPath, BatchName, **kwargs):
     config = LoadConfig()
     engine = ConnectDB(config)
-    if len(os.listdir(FolderPath)) == 0:
-        DataFrame = ReadBatchFromDB(engine, BatchName)
-    else:
-        DataFrame = ProcessFolder(FolderPath, BatchName, engine, mode="Lemmatize")
+    DataFrame = ReadBatchFromDB(engine, BatchName)
     return DataFrame['text'].tolist()
 
 def PreProcessText(**kwargs):
@@ -58,6 +55,7 @@ ReadTask = PythonOperator(
     op_kwargs={'FolderPath': AirflowBatchDir, 'BatchName': 'Aftonbladet'},
     provide_context=True,
     dag=dag,
+    pool='lemmatize_pool',
 )
 
 ProcessTask = PythonOperator(
@@ -65,6 +63,7 @@ ProcessTask = PythonOperator(
     python_callable=PreProcessText,
     provide_context=True,
     dag=dag,
+    pool='lemmatize_pool',
 )
 
 WriteTask = PythonOperator(
@@ -72,6 +71,7 @@ WriteTask = PythonOperator(
     python_callable=WriteConnections,
     provide_context=True,
     dag=dag,
+    pool='lemmatize_pool',
 )
 
 ReadTask >> ProcessTask >> WriteTask

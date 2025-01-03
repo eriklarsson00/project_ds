@@ -23,8 +23,9 @@ def ProcessFolder(FolderPath, BatchName, engine, mode="insert"):
 
             for future in futures:
                 AllData += future.result()
-    
-    return len(AllData)
+    if mode == 'insert':
+        return len(AllData)
+    return AllData
 
 def ProcessJSON(JSONPath, engine, BatchName, BatchSize=10000, mode="insert"):
 

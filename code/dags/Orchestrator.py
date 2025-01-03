@@ -4,100 +4,70 @@ from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.task_group import TaskGroup
 from datetime import datetime, timedelta
 import os
-import shutil
 import re
-import json
-from concurrent.futures import ThreadPoolExecutor
-from DBController import LoadConfig, ConnectDB, InsertToDBFromJSON
+from DBController import LoadConfig, ConnectDB
 from ProcessController import ProcessFolder
+
 MaxBatchSize = 20 * 1024 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 
-
-
-def GetFolderSize(FolderPath):
-    TotalSize = 0
-    for dirpath, dirnames, filenames in os.walk(FolderPath):
-        for file in filenames:
-            FilePath = os.path.join(dirpath, file)
-            TotalSize += os.path.getsize(FilePath)
-    return TotalSize
-
+import os
 
 def CreateSymlinksToBatch(FolderPath, BatchDir=AirflowBatchDir):
     os.makedirs(BatchDir, exist_ok=True)
     Folder = os.path.basename(FolderPath)
     TotalSize = 0
-    BatchFolders = []
     BatchIndex = 1
     BatchFolder = os.path.join(BatchDir, f"{Folder}{BatchIndex}")
     os.makedirs(BatchFolder, exist_ok=True)
-    BatchFolders.append(BatchFolder)
 
-    try:
-        for file in os.listdir(FolderPath):
-            FilePath = os.path.join(FolderPath, file)
-            if os.path.isfile(FilePath):
-                FileSize = os.path.getsize(FilePath)
-                if TotalSize + FileSize > MaxBatchSize:
-                    BatchIndex += 1
-                    BatchFolder = os.path.join(BatchDir, f"{Folder}{BatchIndex}")
-                    os.makedirs(BatchFolder, exist_ok=True)
-                    BatchFolders.append(BatchFolder)
-                    TotalSize = 0
-                SymlinkPath = os.path.join(BatchFolder, file)
+    for file in os.listdir(FolderPath):
+        FilePath = os.path.join(FolderPath, file)
+        if os.path.isfile(FilePath):
+            FileSize = os.path.getsize(FilePath)
+            if TotalSize + FileSize > MaxBatchSize:
+                BatchIndex += 1
+                BatchFolder = os.path.join(BatchDir, f"{Folder}{BatchIndex}")
+                os.makedirs(BatchFolder, exist_ok=True)
+                TotalSize = 0
+            
+            SymlinkPath = os.path.join(BatchFolder, file)
+            # Check if the symlink already exists
+            if not os.path.exists(SymlinkPath):
                 os.symlink(FilePath, SymlinkPath)
                 TotalSize += FileSize
-        #return BatchIndex, BatchFolders
-    except Exception as e:
-        print(f"Error while creating symlinks to batch folder: {e}")
-        raise
+            else:
+                print(f"Symlink for {file} already exists. Skipping creation.")
+
+
+def ProcessAllBatches(FolderName, BatchDir=AirflowBatchDir, **kwargs):
+    config = LoadConfig()
+    engine = ConnectDB(config)
+    batch_prefix = f"{FolderName}"
+    batch_paths = [
+        os.path.join(BatchDir, batch_name)
+        for batch_name in os.listdir(BatchDir)
+        if batch_name.startswith(batch_prefix)
+    ]
+
+    for batch_path in batch_paths:
+        if not os.path.exists(batch_path):
+            print(f"Skipping non-existent batch path: {batch_path}")
+            continue
+
+        print(f"Processing batch: {batch_path}")
+        ProcessFolder(engine=engine, BatchName=os.path.basename(batch_path), FolderPath=batch_path)
 
 
 
-
-def CopyFilesToBatch(FolderPath, BatchDir):
-    os.makedirs(BatchDir, exist_ok=True)
-    Folder = os.path.basename(FolderPath)
-    TotalSize = 0
-    BatchFolders = []
-    BatchIndex = 1
-    BatchFolder = os.path.join(BatchDir, f"{Folder}{BatchIndex}")
-    os.makedirs(BatchFolder, exist_ok=True)
-    BatchFolders.append(BatchFolder)
-    try:
-        for file in os.listdir(FolderPath):
-            FilePath = os.path.join(FolderPath, file)
-            if os.path.isfile(FilePath):
-                FileSize = os.path.getsize(FilePath)
-                if TotalSize + FileSize > MaxBatchSize:
-                    BatchIndex += 1
-                    BatchFolder = os.path.join(BatchDir, f"{Folder}{BatchIndex}")
-                    os.makedirs(BatchFolder, exist_ok=True)
-                    BatchFolders.append(BatchFolder)
-                    TotalSize = 0
-                shutil.copy(FilePath, BatchFolder)
-                TotalSize += FileSize
-        return BatchIndex, BatchFolders
-    except Exception as e:
-        print(f"Error while copying files to batch folder: {e}")
-        raise
-
-
-def EnableBatchProcessing(FolderPath, **kwargs):
-    os.makedirs(AirflowBatchDir, exist_ok=True)
-    NumberOfBatches, BatchFolders = CopyFilesToBatch(FolderPath, AirflowBatchDir)
-    kwargs['ti'].xcom_push(key='NumberOfBatches', value=NumberOfBatches)
-    kwargs['ti'].xcom_push(key='BatchFolders', value=BatchFolders)
-
-
-def UploadToDB(FolderPath, BatchName, **kwargs):
-    
-    
-    
-    ProcessedCount = AllData.len()
-    print(f"Processed {ProcessedCount} tweets from {BatchName} in {FolderPath}")
-
+def GetMaxBatchIndex(batch_dir, folder_name):
+    batch_prefix = f"{folder_name}"
+    existing_batch_indices = [
+        int(re.sub(f"^{batch_prefix}(\d+)$", r"\1", filename))
+        for filename in os.listdir(batch_dir)
+        if filename.startswith(batch_prefix) and re.match(f"^{batch_prefix}\d+$", filename)
+    ]
+    return max(existing_batch_indices, default=0)
 
 default_args = {
     'owner': 'airflow',
@@ -105,66 +75,56 @@ default_args = {
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
-    'retry_delay': timedelta(minutes=5),
-    'max_active_runs': 1
+    'retry_delay': timedelta(minutes=5)
 }
 
 with DAG(
     'OrchestratorTwitter',
     default_args=default_args,
-    description='Orchestrator for processing the Twitter JSON files',
+    description='Orchestrator for processing Twitter JSON files',
     schedule_interval='@daily',
     start_date=datetime(2024, 11, 20),
-    catchup=False,
-    concurrency=10,
-    max_active_runs=1,
+    catchup=False
 ) as dag:
+
+    DataDir = '/opt/airflow/tweets'
     task_enable_batch = {}
-    task_process_batch = {}
+    task_process_all_batches = {}
     task_lemmatize_batch = {}
     TaskGroups = {}
-    AllData = []
-    DataDir = '/opt/airflow/tweets'
-    config = LoadConfig()
-    engine = ConnectDB(config)
 
     for folder in os.listdir(DataDir):
         FolderPath = os.path.join(DataDir, folder)
         if os.path.isdir(FolderPath):
             if folder not in TaskGroups:
                 TaskGroups[folder] = TaskGroup(group_id=f"group_{folder}")
+
+            # Create batch task
             task_enable_batch[folder] = PythonOperator(
                 task_id=f'Create_Batch_For_{folder}',  
                 python_callable=CreateSymlinksToBatch,
                 op_kwargs={'FolderPath': FolderPath},
-                provide_context=True,
-                pool='file_pool',
-                queue='default',
-                task_group=TaskGroups[folder]
+                task_group=TaskGroups[folder],
             )
-            
-            task_enable_batch[folder]
-    
-    for folder in os.listdir(AirflowBatchDir):
-        FolderPath = os.path.join(AirflowBatchDir, folder)
-        if os.path.isdir(FolderPath):
-            TweetFolder = re.sub(r'\d+', '', folder)
-            task_process_batch[folder] = PythonOperator(
-                task_id=f'Process_Batch_For_{folder}',  
-                python_callable=ProcessFolder,
-                op_kwargs={'engine': engine, 'data': AllData, 'BatchName': folder},
-                provide_context=True,
+
+            # Consolidated process task
+            task_process_all_batches[folder] = PythonOperator(
+                task_id=f'Process_All_Batches_For_{folder}',
+                python_callable=ProcessAllBatches,
+                op_kwargs={'FolderName': folder},
+                task_group=TaskGroups[folder],
                 pool='tweet_pool',
-                queue='default',
-                task_group=TaskGroups[TweetFolder]
             )
+
+            # Lemmatize batch task
             task_lemmatize_batch[folder] = TriggerDagRunOperator(
-                task_id=f'Lemmatize_Batch_For_{folder}',
+                task_id=f'Lemmatize_All_Batches_For_{folder}',
                 trigger_dag_id='Lemmatization_of_Tweets',
-                conf={'FolderPath': FolderPath, 'BatchName': folder},
-                task_group=TaskGroups[TweetFolder],
-                queue='lemmatize_queue',
-                wait_for_completion=True,
+                conf={'FolderName': folder},
+                task_group=TaskGroups[folder],
+                wait_for_completion=False,
+                pool='lemmatize_pool',
             )
-            task_process_batch[folder].set_upstream(task_enable_batch[TweetFolder])
-            task_lemmatize_batch[folder].set_upstream(task_enable_batch[TweetFolder])
+
+            # Set dependencies
+            task_enable_batch[folder] >> task_process_all_batches[folder] >> task_lemmatize_batch[folder]
