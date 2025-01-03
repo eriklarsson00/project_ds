@@ -9,31 +9,16 @@ import os
 MaxBatchSize = 20 * 1024 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 
-def ReadBatchData(FolderPath, BatchName, **kwargs):
+
+def WritePreProcessedText(BatchName):
     config = LoadConfig()
     engine = ConnectDB(config)
     DataFrame = ReadBatchFromDB(engine, BatchName)
-    return DataFrame['text'].tolist()
-
-def PreProcessText(**kwargs):
-    ti = kwargs['ti']
-    InputText = ti.xcom_pull(task_ids='FetchTweets')
+    InputText = DataFrame['text'].tolist()
     stanzaModel = LoadModel()
     CleanedText = CleanInputText(InputText)
     ProcessedText = ProcessInputText(CleanedText, stanzaModel)
-    return ProcessedText
-
-def WriteConnections(**kwargs):
-    ti = kwargs['ti']
-    InputText = ti.xcom_pull(task_ids='PreprocessTweetText')
-    config = LoadConfig()
-    engine = ConnectDB(config)
-    AllConnections = GetConnections(InputText)
-    InsertData = [
-        {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
-        for k, connection in AllConnections.items()
-        for pair, count in connection.items()
-    ]
+    InsertData = GetConnections(ProcessedText)
     InsertWordPairsToDB(engine, InsertData)
 
 dag = DAG(
@@ -49,29 +34,13 @@ dag = DAG(
     catchup=False,
 )
 
-ReadTask = PythonOperator(
-    task_id='FetchTweets',
-    python_callable=ReadBatchData,
-    op_kwargs={'FolderPath': AirflowBatchDir, 'BatchName': 'Aftonbladet'},
-    provide_context=True,
-    dag=dag,
-    pool='lemmatize_pool',
-)
-
-ProcessTask = PythonOperator(
-    task_id='PreprocessTweetText',
-    python_callable=PreProcessText,
-    provide_context=True,
-    dag=dag,
-    pool='lemmatize_pool',
-)
-
-WriteTask = PythonOperator(
+Task1 = PythonOperator(
     task_id='ForgeConnections',
-    python_callable=WriteConnections,
+    python_callable=WritePreProcessedText,
+    op_kwargs={'BatchName': 'Aftonbladet'},
     provide_context=True,
     dag=dag,
     pool='lemmatize_pool',
 )
 
-ReadTask >> ProcessTask >> WriteTask
+Task1

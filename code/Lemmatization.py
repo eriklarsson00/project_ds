@@ -1,35 +1,20 @@
-import redis
-import pickle
-from sqlalchemy import text
 from collections import defaultdict
-from DBController import LoadConfig, ConnectDB, ReadBatchFromDB
+from DBController import LoadConfig, ConnectDB, ReadBatchFromDB, InsertWordPairsToDB
 import re
 import stanza
 
-# Redis connection
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
-
-# Parameters for sliding window size
+# Parameters
 MinimumWindow = 2
 MaximumWindow = 10
 
 def LoadModel(language='sv', processors='tokenize,pos,lemma'):
     """
-    Load the model from Redis or initialize it if not present.
+    Initialize the Stanza model locally.
     """
-    model_key = f"stanza_model_{language}"
-    model_pickle = redis_client.get(model_key)
-
-    if model_pickle:
-        print("Loading Stanza model from Redis...")
-        model = pickle.loads(model_pickle)
-    else:
-        print("Initializing Stanza model...")
-        model = stanza.Pipeline(language, processors=processors)
-        redis_client.set(model_key, pickle.dumps(model))
+    print("Initializing Stanza model locally...")
+    model = stanza.Pipeline(language, processors=processors)
     return model
 
-#Clean tweets by removing URLs, special characters, and digits, and normalize text.
 def CleanInputText(tweets, remove_urls=True, remove_special_chars=True, remove_digits=True):
     CleanedTweets = []
     for tweet in tweets:
@@ -44,7 +29,6 @@ def CleanInputText(tweets, remove_urls=True, remove_special_chars=True, remove_d
         CleanedTweets.append(tweet)
     return CleanedTweets
 
-# Process tweets using the Stanza model to lemmatize and clean the text.
 def ProcessInputText(tweets, model):
     docs = model('\n'.join(tweets)).sentences
     CleanedLemmatizedText = [
@@ -53,7 +37,6 @@ def ProcessInputText(tweets, model):
     ]
     return CleanedLemmatizedText
 
-# Extract word co-occurrence connections for different sliding window sizes.
 def GetConnections(InputText, MinimumWindow=MinimumWindow, MaximumWindow=MaximumWindow):
     AllConnections = {size: defaultdict(int) for size in range(MinimumWindow, MaximumWindow + 1)}
     for Text in InputText:
@@ -61,21 +44,6 @@ def GetConnections(InputText, MinimumWindow=MinimumWindow, MaximumWindow=Maximum
         for k, connection in connections.items():
             for word_pair, count in connection.items():
                 AllConnections[k][word_pair] += count
-    return AllConnections
-
-# Main processing pipeline for a batch: clean, process, and extract connections.
-def ProcessBatch(engine, batch_name):
-    DataFrame = ReadBatchFromDB(engine, batch_name)
-    InputText = DataFrame['text'].tolist()
-
-    # Load model from Redis or initialize
-    model = LoadModel()
-
-    # Process text
-    InputText = CleanInputText(InputText)
-    ProcessedText = ProcessInputText(InputText, model)
-    AllConnections = GetConnections(ProcessedText)
-
     InsertData = [
         {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
         for k, connection in AllConnections.items()
@@ -83,7 +51,19 @@ def ProcessBatch(engine, batch_name):
     ]
     return InsertData
 
-# Generate word connections using a sliding window with overlapping words. The function makes sure that the same word pair is not counted twice.
+def ProcessBatch(engine, batch_name):
+    DataFrame = ReadBatchFromDB(engine, batch_name)
+    InputText = DataFrame['text'].tolist()
+
+    # Load model locally
+    model = LoadModel()
+
+    # Process text
+    InputText = CleanInputText(InputText)
+    ProcessedText = ProcessInputText(InputText, model)
+    InsertData = GetConnections(ProcessedText)
+    return InsertData
+
 def SlidingWindowWithOverlap(InputText):
     words = InputText.split()
     connections_by_window = {}
@@ -111,9 +91,15 @@ def SlidingWindowWithOverlap(InputText):
     return connections_by_window
 
 if __name__ == '__main__':
-    # Load configuration and connect to the database
-    config = LoadConfig()  
+    config = LoadConfig()
     engine = ConnectDB(config)
-
-    # Process a specific batch from the database, in this case aftonbladet
-    ProcessBatch(engine, "aftonbladet")
+    DataFrame = ReadBatchFromDB(engine, "aftonbladet")
+    print("Hello")
+    print(DataFrame)
+    InputText = DataFrame['text'].tolist()
+    stanzaModel = LoadModel()
+    CleanedText = CleanInputText(InputText)
+    ProcessedText = ProcessInputText(CleanedText, stanzaModel)
+    InsertData = GetConnections(ProcessedText)
+    
+    InsertWordPairsToDB(engine, InsertData)
