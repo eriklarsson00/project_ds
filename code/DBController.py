@@ -210,7 +210,7 @@ def ReadBatchFromDB(engine, batch_name):
     else:
         FilterQuery = text( """
                             SELECT text FROM tweets
-                            WHERE batch_name = :batch_name
+                            WHERE batch_name LIKE :batch_name
                             """)
         parameters = {"batch_name": batch_name}
     
