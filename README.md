@@ -1,22 +1,12 @@
 # Pipeline for data processing of twitter data
 
 ## Table of Contents
-- [Overview](#overview)
-- [Features](#features)
-- [Getting Started](#getting-started)
-- [Usage](#usage)
-- [Contributing](#contributing)
-
-
-## Overview
-Creates a data processing pipeline with airflow to populate a database with data ready for visualization in superset. With airflow its possible to load Twitter data in json format and process data for sliding window analyis on text aswell as finding cooccurances of hashtags mentioned in the same tweets. The pipleline is set up ot handle large data sources with batch processing. To get the visual ui apache superset is the recommended visalization tool. However other tools as powerBI will also work. 
-
-
-## Features
-- Automates processing of twitter data to table format
-- Lemmatizes text and applies a sliding window with different window sizes
-- Processes table data into cooccurrences of mentioned tweets
-
+- [Pipeline for data processing of twitter data](#pipeline-for-data-processing-of-twitter-data)
+  - [Table of Contents](#table-of-contents)
+  - [Getting Started](#getting-started)
+    - [Prerequisites](#prerequisites)
+    - [Steps to Install and Run](#steps-to-install-and-run)
+  - [File structure](#file-structure)
 ## Getting Started
 
 ### Prerequisites
@@ -32,19 +22,46 @@ Ensure the following are installed on your system:
    git clone https://github.com/your-repo/project-name.git
    cd project-name
 
-2. configure database.ini
-host= host.docker.internal
-database=xxx
-user=xxx
-port=5432
-password=xxx
+2. **Configure database.ini**:
+   Create a `database.ini` file in the `config/` directory with the following content:
+   ```ini
+   [postgresql]
+   host= host.docker.internal
+   database=xxx
+   user=xxx
+   port=5432
+   password=xxx
+   ```
+   Replace `host`, `database`, `user`, `port`, and `password` with your PostgreSQL database details.
 
-3. cd build
-run build_docker.sh
+3. **Build and Run the Docker Containers**:
+   ```bash
+   docker-compose up --build
+   ```
+   This command will build the Docker containers and start the services.
 
-4. docker compose up --build
 
-5. access localhost:8080
-activate the following dags:
-start orchestration dag
+
+4. **Access the Superset UI**:
+   Open your browser and go to `http://localhost:8088/` to access the Superset UI.
+   Use the following credentials to log in:
+   - **Username**: `admin`
+   - **Password**: `admin`
+
+5. **Start DAGs in Airflow**:
+   Open your browser and go to `http://localhost:8080/` to access the Airflow UI.
+   Use the following credentials to log in:
+   - **Username**: `Airflow`
+   - **Password**: `Airflow`
+
+## File structure
+```
+project-name/
+│
+├── build/                 # Scripts and Dockerfiles for setting up the environment
+├── code/                  # Core Python code for data processing
+├── config/                # Configuration files (e.g., database.ini)
+├── .env                   # Environment variables
+└── docker-compose.yaml    # Configuration file for Docker Compose setup
+```
 
