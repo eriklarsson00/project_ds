@@ -5,11 +5,37 @@ from datetime import datetime, timedelta
 import os
 import shutil
 import re
-from ProcessController import ProcessFolder
-from DBController import LoadConfig, ConnectDB, CreateAllTables
+import json
+from concurrent.futures import ThreadPoolExecutor
+from DBController import LoadConfig, ConnectDB, InsertToDBFromJSON
 
 MaxBatchSize = 20 * 1024 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'
+
+def ProcessFolder(FolderPath, BatchName):
+    #Recursively process all JSON data in FolderPath
+    AllData = []
+    with ThreadPoolExecutor() as executor:
+        futures = []
+        for root, dirs, files in os.walk(FolderPath):
+            for file in files:
+                if file.endswith(".json"):
+                    JsonPath = os.path.join(root, file)
+                    futures.append(executor.submit(ProcessJSON, JsonPath, BatchName))
+            for dir in dirs:
+                DirectoryPath = os.path.join(root, dir)
+                if any(f.endswith('.json') for f in os.listdir(DirectoryPath)):
+                    futures.append(executor.submit(ProcessFolder, DirectoryPath, dir))
+
+            for future in futures:
+                AllData += future.result()
+    return AllData
+
+def ProcessJSON(JSONPath, engine, BatchName):
+    with open(JSONPath, 'r') as file:
+        data = json.load(file)
+    AllData = data.get('data', [])
+    return AllData
 
 def GetFolderSize(FolderPath):
     TotalSize = 0
@@ -18,6 +44,38 @@ def GetFolderSize(FolderPath):
             FilePath = os.path.join(dirpath, file)
             TotalSize += os.path.getsize(FilePath)
     return TotalSize
+
+
+def CreateSymlinksToBatch(FolderPath, BatchDir=AirflowBatchDir):
+    os.makedirs(BatchDir, exist_ok=True)
+    Folder = os.path.basename(FolderPath)
+    TotalSize = 0
+    BatchFolders = []
+    BatchIndex = 1
+    BatchFolder = os.path.join(BatchDir, f"{Folder}{BatchIndex}")
+    os.makedirs(BatchFolder, exist_ok=True)
+    BatchFolders.append(BatchFolder)
+
+    try:
+        for file in os.listdir(FolderPath):
+            FilePath = os.path.join(FolderPath, file)
+            if os.path.isfile(FilePath):
+                FileSize = os.path.getsize(FilePath)
+                if TotalSize + FileSize > MaxBatchSize:
+                    BatchIndex += 1
+                    BatchFolder = os.path.join(BatchDir, f"{Folder}{BatchIndex}")
+                    os.makedirs(BatchFolder, exist_ok=True)
+                    BatchFolders.append(BatchFolder)
+                    TotalSize = 0
+                SymlinkPath = os.path.join(BatchFolder, file)
+                os.symlink(FilePath, SymlinkPath)
+                TotalSize += FileSize
+        #return BatchIndex, BatchFolders
+    except Exception as e:
+        print(f"Error while creating symlinks to batch folder: {e}")
+        raise
+
+
 
 
 def CopyFilesToBatch(FolderPath, BatchDir):
@@ -56,10 +114,10 @@ def EnableBatchProcessing(FolderPath, **kwargs):
 
 
 def UploadToDB(FolderPath, BatchName, **kwargs):
-    config = LoadConfig()
-    engine = ConnectDB(config)
-    #CreateAllTables(engine)
-    ProcessedCount = ProcessFolder(FolderPath, BatchName, engine)
+    
+    
+    
+    ProcessedCount = AllData.len()
     print(f"Processed {ProcessedCount} tweets from {BatchName} in {FolderPath}")
 
 
@@ -86,7 +144,11 @@ with DAG(
     task_enable_batch = {}
     task_process_batch = {}
     TaskGroups = {}
+    AllData = []
     DataDir = '/opt/airflow/tweets'
+    config = LoadConfig()
+    engine = ConnectDB(config)
+
     for folder in os.listdir(DataDir):
         FolderPath = os.path.join(DataDir, folder)
         if os.path.isdir(FolderPath):
@@ -94,7 +156,7 @@ with DAG(
                 TaskGroups[folder] = TaskGroup(group_id=f"group_{folder}")
             task_enable_batch[folder] = PythonOperator(
                 task_id=f'Create_Batch_For_{folder}',  
-                python_callable=EnableBatchProcessing,
+                python_callable=CreateSymlinksToBatch,
                 op_kwargs={'FolderPath': FolderPath},
                 provide_context=True,
                 pool='file_pool',
@@ -108,10 +170,11 @@ with DAG(
         FolderPath = os.path.join(AirflowBatchDir, folder)
         if os.path.isdir(FolderPath):
             TweetFolder = re.sub(r'\d+', '', folder)
+            AllData = ProcessFolder(FolderPath, folder, engine)
             task_process_batch[folder] = PythonOperator(
                 task_id=f'Process_Batch_For_{folder}',  
-                python_callable=UploadToDB,
-                op_kwargs={'FolderPath': FolderPath, 'BatchName': folder},
+                python_callable=InsertToDBFromJSON,
+                op_kwargs={'engine': engine, 'data': AllData, 'BatchName': folder},
                 provide_context=True,
                 pool='tweet_pool',
                 queue='default',
