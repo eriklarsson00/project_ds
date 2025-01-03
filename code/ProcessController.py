@@ -15,7 +15,7 @@ def ProcessFolder(FolderPath, BatchName, engine, mode="insert"):
             for file in files:
                 if file.endswith(".json"):
                     JsonPath = os.path.join(root, file)
-                    futures.append(executor.submit(ProcessJSON, JsonPath, engine, BatchName, mode))
+                    futures.append(executor.submit(ProcessJSON, JsonPath, engine, BatchName, 10000, mode))
             for dir in dirs:
                 DirectoryPath = os.path.join(root, dir)
                 if any(f.endswith('.json') for f in os.listdir(DirectoryPath)):
@@ -23,9 +23,8 @@ def ProcessFolder(FolderPath, BatchName, engine, mode="insert"):
 
             for future in futures:
                 AllData += future.result()
-    if mode == "insert":
-        return AllData.len()
-    return AllData
+    
+    return len(AllData)
 
 def ProcessJSON(JSONPath, engine, BatchName, BatchSize=10000, mode="insert"):
 

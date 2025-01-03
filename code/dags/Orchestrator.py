@@ -9,34 +9,11 @@ import re
 import json
 from concurrent.futures import ThreadPoolExecutor
 from DBController import LoadConfig, ConnectDB, InsertToDBFromJSON
-
+from ProcessController import ProcessFolder
 MaxBatchSize = 20 * 1024 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 
-def ProcessFolder(FolderPath, BatchName):
-    #Recursively process all JSON data in FolderPath
-    AllData = []
-    with ThreadPoolExecutor() as executor:
-        futures = []
-        for root, dirs, files in os.walk(FolderPath):
-            for file in files:
-                if file.endswith(".json"):
-                    JsonPath = os.path.join(root, file)
-                    futures.append(executor.submit(ProcessJSON, JsonPath, BatchName))
-            for dir in dirs:
-                DirectoryPath = os.path.join(root, dir)
-                if any(f.endswith('.json') for f in os.listdir(DirectoryPath)):
-                    futures.append(executor.submit(ProcessFolder, DirectoryPath, dir))
 
-            for future in futures:
-                AllData += future.result()
-    return AllData
-
-def ProcessJSON(JSONPath, engine, BatchName):
-    with open(JSONPath, 'r') as file:
-        data = json.load(file)
-    AllData = data.get('data', [])
-    return AllData
 
 def GetFolderSize(FolderPath):
     TotalSize = 0
@@ -186,7 +163,7 @@ with DAG(
                 task_id=f'Lemmatize_Batch_For_{folder}',
                 trigger_dag_id='Lemmatization_of_Tweets',
                 conf={'FolderPath': FolderPath, 'BatchName': folder},
-                task_group=TaskGroups[folder],
+                task_group=TaskGroups[TweetFolder],
                 queue='lemmatize_queue',
                 wait_for_completion=True,
             )
