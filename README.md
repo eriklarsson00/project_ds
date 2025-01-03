@@ -65,3 +65,10 @@ project-name/
 └── docker-compose.yaml    # Configuration file for Docker Compose setup
 ```
 
+## Code Contribution
+
+### Elis Indebetou
+Made slidingWindowWithOverlap function in Lemmatization.py for the data processing pipeline. Worked with Erik with hashtagNetwork.py, Erik was main contributor.
+
+### Erik Larsson
+created db connection, insertion logic for sliding window connection. worked on hashtag network with Elis. created Dag process for hashtag network. Also helped with the main processing pipeline. however the earlier iterations and not the final version. Helped with debugging the main processing pipeline. Worked with the sql in Superset and and created plots for the processed data. 
