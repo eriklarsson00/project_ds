@@ -14,7 +14,12 @@ import pandas as pd
 
 from sqlalchemy import Table, Column, MetaData, String, Integer, PrimaryKeyConstraint
 
+#code written by Erik
 def create_cooccurrence_table(engine):
+    """
+    Create table for cooccurance Network
+    params: engine for connection to db
+    """
     metadata = MetaData()
 
     cooccurrence_network = Table(
@@ -62,7 +67,7 @@ def fetch_hashtags(engine, batch_process=None, from_date=None, to_date=None):
             print("One or both tables ('hashtags', 'tweets') do not exist in the database.")
             return None
 
-        # Build the base query with placeholders for parameters
+        # Query to fetch data for network analysis
         query = """
         SELECT h.*, 
                t.author_id, 
@@ -100,7 +105,10 @@ def fetch_hashtags(engine, batch_process=None, from_date=None, to_date=None):
 
       
 def update_or_insert_hashtag_row(engine, hashtag1, hashtag2, weight):
-   
+    """
+    updates existing row with new weight if both hashtags already exists
+    if unique pair add it to the table
+    """
     query = text("""
         INSERT INTO cooccurrence_network (hashtag1, hashtag2, weight)
         VALUES (:hashtag1, :hashtag2, :weight)
@@ -142,7 +150,7 @@ def build_cooccurence_network(engine, df):
         hashtags = tweet['hashtag'].str.lower().unique().tolist()
         if len(hashtags) > 1:
             # Generate all pairs of hashtags in the tweet
-            edges = itertools.combinations(sorted(hashtags), 2)  # Sorted ensures consistency in pairs
+            edges = itertools.combinations(sorted(hashtags), 2) 
             cooccurrence_edges.extend(edges)
 
     print(cooccurrence_edges)
@@ -237,22 +245,22 @@ if __name__ == '__main__':
     delete_cooccurrence_table(engine=engine)
     create_cooccurrence_table(engine)
     #print(f"Engine type: {type(engine)}") 
-    create_cooccurrence_table(engine=engine)
-    if table_exists_reflection(engine, 'cooccurrence_network'):
-        print("Table exists.")
-    else:
-        print("Table does not exist.")
+    #create_cooccurrence_table(engine=engine)
+    #if table_exists_reflection(engine, 'cooccurrence_network'):
+    #    print("Table exists.")
+    #else:
+    #    print("Table does not exist.")
+#
+    #df = fetch_hashtags(engine, batch_process='svtnyheter1')
+    #if df is not None:
+    #    print(df.shape)  # Display the first few rows
 
-    df = fetch_hashtags(engine, batch_process='svtnyheter1')
-    if df is not None:
-        print(df.shape)  # Display the first few rows
-
-    small_group_df = df
+    #small_group_df = df
     #
-    build_cooccurence_network(engine, small_group_df)
+    #build_cooccurence_network(engine, small_group_df)
     #grouped_df.to_csv("test.csv")
     #net, test = create_network(grouped_df)
     #print(test)
-    df =  get_cooccurrence_data(engine=engine)
-    print(df)
+    #df =  get_cooccurrence_data(engine=engine)
+    #print(df)
     #plot_network(net)
