@@ -21,14 +21,4 @@ fi
 
 echo "Docker image built successfully: $IMAGE_NAME:$IMAGE_TAG"
 
-# Run a container from the built image
-echo "Running a container from the image..."
-docker run -it --rm "$IMAGE_NAME:$IMAGE_TAG"
-
-if [ $? -ne 0 ]; then
-  echo "Error: Failed to run the Docker container."
-  exit 1
-fi
-
-echo "Container executed successfully."
 
