@@ -149,10 +149,9 @@ with DAG(
         FolderPath = os.path.join(AirflowBatchDir, folder)
         if os.path.isdir(FolderPath):
             TweetFolder = re.sub(r'\d+', '', folder)
-            AllData = ProcessFolder(FolderPath, folder, engine)
             task_process_batch[folder] = PythonOperator(
                 task_id=f'Process_Batch_For_{folder}',  
-                python_callable=InsertToDBFromJSON,
+                python_callable=ProcessFolder,
                 op_kwargs={'engine': engine, 'data': AllData, 'BatchName': folder},
                 provide_context=True,
                 pool='tweet_pool',
