@@ -1,13 +1,10 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.utils.task_group import TaskGroup
 from datetime import datetime, timedelta
-import os
-import shutil
-import re
 from ProcessController import ProcessFolder
 from DBController import LoadConfig, ConnectDB, ReadBatchFromDB, InsertWordPairsToDB
-from Lemmatization import CleanInputText, ProcessInputText, GetConnections
+from Lemmatization import CleanInputText, ProcessInputText, GetConnections, LoadModel
+
 MaxBatchSize = 20 * 1024 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 
@@ -20,51 +17,60 @@ def ReadBatchData(FolderPath, BatchName, **kwargs):
         DataFrame = ProcessFolder(FolderPath, BatchName, engine, mode="Lemmatize")
     return DataFrame['text'].tolist()
 
-def PreProcessText(InputText):
+def PreProcessText(**kwargs):
+    ti = kwargs['ti']
+    InputText = ti.xcom_pull(task_ids='FetchTweets')
+    stanzaModel = LoadModel()
     CleanedText = CleanInputText(InputText)
-    return ProcessInputText(CleanedText)
+    ProcessedText = ProcessInputText(CleanedText, stanzaModel)
+    return ProcessedText
 
-def WriteConnections(engine, InputText):
+def WriteConnections(**kwargs):
+    ti = kwargs['ti']
+    InputText = ti.xcom_pull(task_ids='PreprocessTweetText')
+    config = LoadConfig()
+    engine = ConnectDB(config)
     AllConnections = GetConnections(InputText)
-    InsertData =  [
-            {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
-            for k, connection in AllConnections.items()
-            for pair, count in connection.items()
-        ]
+    InsertData = [
+        {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
+        for k, connection in AllConnections.items()
+        for pair, count in connection.items()
+    ]
     InsertWordPairsToDB(engine, InsertData)
 
-# Define the DAG
 dag = DAG(
-    'Lemmatization of Tweets',
+    'Lemmatization_of_Tweets',
     default_args={
         'owner': 'airflow',
         'retries': 1,
         'retry_delay': timedelta(minutes=5),
     },
     description='Pipeline to process tweets and insert word pairs',
-    schedule_interval='@daily',  # You can change the schedule
+    schedule_interval=None,
     start_date=datetime(2024, 12, 14),
     catchup=False,
 )
 
-# Define tasks
 ReadTask = PythonOperator(
     task_id='FetchTweets',
     python_callable=ReadBatchData,
+    op_kwargs={'FolderPath': AirflowBatchDir, 'BatchName': 'Aftonbladet'},
+    provide_context=True,
     dag=dag,
 )
 
 ProcessTask = PythonOperator(
     task_id='PreprocessTweetText',
     python_callable=PreProcessText,
+    provide_context=True,
     dag=dag,
 )
 
 WriteTask = PythonOperator(
     task_id='ForgeConnections',
     python_callable=WriteConnections,
+    provide_context=True,
     dag=dag,
 )
 
-# Define task dependencies (ordering)
 ReadTask >> ProcessTask >> WriteTask

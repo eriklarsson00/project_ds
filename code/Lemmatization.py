@@ -1,20 +1,35 @@
+import redis
+import pickle
 from sqlalchemy import text
 from collections import defaultdict
-from sqlalchemy.exc import SQLAlchemyError
-from collections import defaultdict
-import pandas as pd
-from DBController import LoadConfig, ConnectDB, ReadBatchFromDB, InsertWordPairsToDB
+from DBController import LoadConfig, ConnectDB, ReadBatchFromDB
 import re
 import stanza
 
+# Redis connection
+redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
 
-nlp = stanza.Pipeline('sv', processors='tokenize,pos,lemma', )
+# Parameters
 MinimumWindow = 2
 MaximumWindow = 10
 
-  
+def LoadModel(language='sv', processors='tokenize,pos,lemma'):
+    """
+    Load the model from Redis or initialize it if not present.
+    """
+    model_key = f"stanza_model_{language}"
+    model_pickle = redis_client.get(model_key)
+
+    if model_pickle:
+        print("Loading Stanza model from Redis...")
+        model = pickle.loads(model_pickle)
+    else:
+        print("Initializing Stanza model...")
+        model = stanza.Pipeline(language, processors=processors)
+        redis_client.set(model_key, pickle.dumps(model))
+    return model
+
 def CleanInputText(tweets, remove_urls=True, remove_special_chars=True, remove_digits=True):
-    
     CleanedTweets = []
     for tweet in tweets:
         tweet = tweet.lower()
@@ -29,47 +44,42 @@ def CleanInputText(tweets, remove_urls=True, remove_special_chars=True, remove_d
     return CleanedTweets
 
 def ProcessInputText(tweets, model):
-    docs = nlp('\n'.join(tweets)).sentences
+    docs = model('\n'.join(tweets)).sentences
     CleanedLemmatizedText = [
         ' '.join(word.lemma for word in sentence.words if word.lemma)
         for sentence in docs
     ]
     return CleanedLemmatizedText
 
-
-
-
-
 def GetConnections(InputText, MinimumWindow=MinimumWindow, MaximumWindow=MaximumWindow):
-    
-    #df = pd.read_sql(FilterQuery, engine, params=parameters)
-    #InputText = DataFrame['text'].tolist()
-    AllConnections = {size: defaultdict(int) for size in range(MinimumWindow, MaximumWindow + 1)} 
-    #FinalText = CleanLemmatizeInputText(InputText)
+    AllConnections = {size: defaultdict(int) for size in range(MinimumWindow, MaximumWindow + 1)}
     for Text in InputText:
-        connections =  SlidingWindowWithOverlap(Text)
+        connections = SlidingWindowWithOverlap(Text)
         for k, connection in connections.items():
             for word_pair, count in connection.items():
                 AllConnections[k][word_pair] += count
-    
-    
     return AllConnections
-
 
 def ProcessBatch(engine, batch_name):
     DataFrame = ReadBatchFromDB(engine, batch_name)
     InputText = DataFrame['text'].tolist()
-    AllConnections = GetConnections(InputText)
+
+    # Load model from Redis or initialize
+    model = LoadModel()
+
+    # Process text
+    InputText = CleanInputText(InputText)
+    ProcessedText = ProcessInputText(InputText, model)
+    AllConnections = GetConnections(ProcessedText)
+
     InsertData = [
-            {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
-            for k, connection in AllConnections.items()
-            for pair, count in connection.items()
-        ]
+        {'window_size': k, 'word1': pair[0], 'word2': pair[1], 'word_count': count}
+        for k, connection in AllConnections.items()
+        for pair, count in connection.items()
+    ]
     return InsertData
 
-
 def SlidingWindowWithOverlap(InputText):
-
     words = InputText.split()
     connections_by_window = {}
     for k in range(2, MaximumWindow + 1):
@@ -95,30 +105,7 @@ def SlidingWindowWithOverlap(InputText):
         connections_by_window[k] = dict(connections)
     return connections_by_window
 
-
-def SlidingWindowWithoutOverlap(InputText):
-    #Not being used to process anything
-    words = InputText.split()
-    connections = defaultdict(int)
-    for i in range(0, len(words) - MaximumWindow + 1, MaximumWindow):
-        window = words[i:i + MaximumWindow]
-        for j in range(MaximumWindow):
-            for k in range(j + 1, MaximumWindow):
-                word_pair = (window[j], window[k])
-                reverse_pair = (window[k], window[j])
-                if reverse_pair in connections:
-                    connections[word_pair] += connections.pop(reverse_pair)
-                else:
-                    connections[word_pair] += 1
-    return {pair: count for pair, count in connections.items() if count > 0}
-
-
-
-
-
-
 if __name__ == '__main__':
-
     config = LoadConfig()  # Assuming you have a function that loads config
     engine = ConnectDB(config)  # Assuming this function connects to the DB
-    InsertConnectionsToDB(engine, "aftonbladet")
+    ProcessBatch(engine, "aftonbladet")
