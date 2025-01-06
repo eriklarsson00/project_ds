@@ -56,9 +56,7 @@ def ProcessAllBatches(FolderName, BatchDir=AirflowBatchDir, **kwargs):
             continue
 
         print(f"Processing batch: {batch_path}")
-        ProcessFolder(engine=engine, BatchName=os.path.basename(batch_path), FolderPath=batch_path)
-
-
+        ProcessFolder(engine=engine, FolderPath=batch_path)
 
 def GetMaxBatchIndex(batch_dir, folder_name):
     batch_prefix = f"{folder_name}"
@@ -120,7 +118,6 @@ with DAG(
             task_lemmatize_batch[folder] = TriggerDagRunOperator(
                 task_id=f'Lemmatize_All_Batches_For_{folder}',
                 trigger_dag_id='Lemmatization_of_Tweets',
-                conf={'FolderName': folder},
                 task_group=TaskGroups[folder],
                 wait_for_completion=False,
                 pool='lemmatize_pool',

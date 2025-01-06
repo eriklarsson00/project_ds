@@ -12,6 +12,45 @@ def LoadJSONFile(file_path):
         data = json.load(file)
     return data
 
+def AddBatch(engine, BatchName):
+    with engine.begin() as conn:
+        # Insert the batch into the `batches` table with status 'NEW'
+        InsertBatchQuery = text("""
+            INSERT INTO batches (batch_name, batch_status)
+            VALUES (:batch_name, 'NEW')
+            ON CONFLICT (batch_name) DO NOTHING
+        """)
+        conn.execute(InsertBatchQuery, {'batch_name': BatchName})
+
+def ReadNewBatchesFromDB(engine):
+    """
+    Fetch all records from the `batches` table where `batch_status` is 'NEW'.
+    """
+    try:
+        with engine.connect() as conn:
+            query = text("SELECT batch_name FROM batches WHERE batch_status = 'NEW'")
+            result = conn.execute(query)
+            new_batches = [{'batch_name': row['batch_name']} for row in result]
+            return new_batches
+    except SQLAlchemyError as error:
+        print(f"Error reading new batches from database: {error}")
+        return []
+
+def UpdateBatchStatus(engine, batch_name, status):
+    """
+    Update the `batch_status` of a batch in the `batches` table.
+    """
+    try:
+        with engine.begin() as conn:
+            query = text("""
+                UPDATE batches
+                SET batch_status = :status
+                WHERE batch_name = :batch_name
+            """)
+            conn.execute(query, {'batch_name': batch_name, 'status': status})
+            print(f"Batch '{batch_name}' updated to status '{status}'.")
+    except SQLAlchemyError as error:
+        print(f"Error updating batch status for '{batch_name}': {error}")
 
 def LoadConfig(filename='config/database.ini', section='postgresql'): 
     #Copy this declaration and definition for other DB types supported by airflow, superset and sqlalchemy
@@ -38,10 +77,10 @@ def ConnectDB(ConnectionStr):
         return None
 
 def CreateAllTables(engine):
- 
-    DropAllTables(engine) #This has to be done
-    #Code below is needed before all processing can be done
+    DropAllTables(engine)  # Drop all tables before creating new ones
     metaData = MetaData()
+
+    # Define the tweets table
     TweetsTable = Table(
         'tweets', metaData,
         Column('tweet_id', BigInteger, primary_key=True),
@@ -53,15 +92,17 @@ def CreateAllTables(engine):
         Column('like_count', Integer),
         Column('quote_count', Integer),
         Column('created_at', TIMESTAMP),
-        Column('batch_name', Text, nullable=True) 
+        Column('batch_name', Text, nullable=True)
     )
 
+    # Define the hashtags table
     HashtagsTable = Table(
         'hashtags', metaData,
         Column('tweet_id', BigInteger, ForeignKey('tweets.tweet_id'), nullable=False),
         Column('hashtag', String(255), nullable=False)
     )
-    
+
+    # Define the word pairs table
     WordPairTable = Table(
         'wordpairs', metaData,
         Column('window_size', Integer, nullable=False),
@@ -69,13 +110,22 @@ def CreateAllTables(engine):
         Column('word2', String, nullable=False),
         Column('word_count', Integer, nullable=False),
         Index('ix_sliding_window_size', 'window_size'),
-        UniqueConstraint('window_size', 'word1', 'word2', name='uix_word_pairs')  # Ensure uniqueness
+        UniqueConstraint('window_size', 'word1', 'word2', name='uix_word_pairs')
     )
+
+    # Define the batches table
+    BatchesTable = Table(
+        'batches', metaData,
+        Column('batch_name', String(255), primary_key=True),
+        Column('batch_status', String(255), nullable=False)
+    )
+
     try:
-        metaData.create_all(engine, checkfirst=True)  
+        metaData.create_all(engine, checkfirst=True)
         print("Tables created successfully.")
     except SQLAlchemyError as error:
-        print(f"Error creating table: {error}")
+        print(f"Error creating tables: {error}")
+
 
 
 def DropAllTables(engine):
@@ -90,7 +140,7 @@ def DropAllTables(engine):
         for table in reversed(metaData.sorted_tables):
             print(f"Dropping table: {table.name}")
             table.drop(engine, checkfirst=True)
-        
+
         # Explicitly drop all remaining indexes
         with engine.connect() as conn:
             indexes = conn.execute(text("""
@@ -210,10 +260,9 @@ def ReadBatchFromDB(engine, batch_name):
     else:
         FilterQuery = text( """
                             SELECT text FROM tweets
-                            WHERE batch_name LIKE :batch_name
+                            WHERE batch_name = :batch_name
                             """)
-        batch_name = batch_name.lower()
-        parameters = {"batch_name": f"%{batch_name}%"}
+        parameters = {"batch_name": batch_name}
     
     DataFrame = pd.read_sql(FilterQuery, engine, params=parameters)
     return DataFrame

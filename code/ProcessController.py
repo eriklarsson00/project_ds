@@ -3,10 +3,10 @@
 import os
 import json
 from concurrent.futures import ThreadPoolExecutor
-from DBController import InsertToDBFromJSON, ConnectDB, LoadConfig, CreateAllTables, DropAllTables
+from DBController import InsertToDBFromJSON, ConnectDB, LoadConfig, CreateAllTables, DropAllTables, AddBatch
 
 
-def ProcessFolder(FolderPath, BatchName, engine, mode="insert"):
+def ProcessFolder(FolderPath, engine, mode="insert"):
     #Recursively process all JSON data in FolderPath
     AllData = []
     with ThreadPoolExecutor() as executor:
@@ -15,11 +15,11 @@ def ProcessFolder(FolderPath, BatchName, engine, mode="insert"):
             for file in files:
                 if file.endswith(".json"):
                     JsonPath = os.path.join(root, file)
-                    futures.append(executor.submit(ProcessJSON, JsonPath, engine, BatchName, 10000, mode))
+                    futures.append(executor.submit(ProcessJSON, JsonPath, engine, os.path.basename(FolderPath), 10000, mode))
             for dir in dirs:
                 DirectoryPath = os.path.join(root, dir)
                 if any(f.endswith('.json') for f in os.listdir(DirectoryPath)):
-                    futures.append(executor.submit(ProcessFolder, DirectoryPath, dir, engine, mode))
+                    futures.append(executor.submit(ProcessFolder, DirectoryPath, engine, mode))
 
             for future in futures:
                 AllData += future.result()
@@ -39,7 +39,7 @@ def ProcessJSON(JSONPath, engine, BatchName, BatchSize=10000, mode="insert"):
             tweet['batch_task'] = BatchName
         if mode == "insert":
             InsertToDBFromJSON(engine, batch, BatchName, BatchSize)
-    
+    AddBatch(engine, BatchName)
     return AllData
 
 
