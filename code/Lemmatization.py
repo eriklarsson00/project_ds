@@ -2,17 +2,18 @@ from collections import defaultdict
 from DBController import LoadConfig, ConnectDB, ReadBatchFromDB, InsertWordPairsToDB
 import re
 import stanza
+from stanza.pipeline.core import DownloadMethod
 
 # Parameters
 MinimumWindow = 2
 MaximumWindow = 10
 
-def LoadModel(language='sv', processors='tokenize,lemma'):
+def LoadModel(language='sv', processors='tokenize,pos,lemma'):
     """
     Initialize the Stanza model locally.
     """
     print("Initializing Stanza model locally...")
-    model = stanza.Pipeline(language, processors=processors)
+    model = stanza.Pipeline(language, processors=processors,download_method=DownloadMethod.REUSE_RESOURCES) #use_gpu=True, if possible
     return model
 
 def CleanInputText(tweets, remove_urls=True, remove_special_chars=True, remove_digits=True):

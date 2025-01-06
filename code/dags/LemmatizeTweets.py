@@ -3,14 +3,16 @@ from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 from DBController import LoadConfig, ConnectDB, ReadNewBatchesFromDB, UpdateBatchStatus, ReadBatchFromDB
 from Lemmatization import LoadModel, CleanInputText, ProcessInputText, GetConnections, InsertWordPairsToDB
-
+stanzaModel = None
 
 def WritePreProcessedText(BatchName):
+    global stanzaModel
     config = LoadConfig()
     engine = ConnectDB(config)
     DataFrame = ReadBatchFromDB(engine, BatchName)
     InputText = DataFrame['text'].tolist()
-    stanzaModel = LoadModel()
+    if stanzaModel is None:
+        stanzaModel = LoadModel()
     CleanedText = CleanInputText(InputText)
     ProcessedText = ProcessInputText(CleanedText, stanzaModel)
     InsertData = GetConnections(ProcessedText)

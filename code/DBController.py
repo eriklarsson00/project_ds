@@ -49,6 +49,16 @@ def UpdateBatchStatus(engine, batch_name, status):
             """)
             conn.execute(query, {'batch_name': batch_name, 'status': status})
             print(f"Batch '{batch_name}' updated to status '{status}'.")
+
+            if status == 'SUCCESS':
+                update_tweets_query = text("""
+                    UPDATE tweets
+                    SET batch_name = 'NONE'
+                    WHERE batch_name = :batch_name
+                """)
+                conn.execute(update_tweets_query, {'batch_name': batch_name})
+                print(f"All tweets with batch_name '{batch_name}' have been updated to 'NONE'.")
+                
     except SQLAlchemyError as error:
         print(f"Error updating batch status for '{batch_name}': {error}")
 

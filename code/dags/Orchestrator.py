@@ -7,11 +7,30 @@ import os
 import re
 from DBController import LoadConfig, ConnectDB
 from ProcessController import ProcessFolder
+import os
+import shutil
+
 
 MaxBatchSize = 20 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 
-import os
+
+def CleanUpFiles(BatchFolder):
+    if os.path.exists(BatchFolder):
+        print(f"Deleting all folders in {BatchFolder}...")
+        
+        for folder_name in os.listdir(BatchFolder):
+            folder_path = os.path.join(BatchFolder, folder_name)
+            if os.path.isdir(folder_path):
+                try:
+                    # Safely delete the directory and all its contents
+                    shutil.rmtree(folder_path)
+                    print(f"Deleted {folder_path}")
+                except Exception as e:
+                    print(f"Failed to delete {folder_path}: {e}")
+    else:
+        print(f"Directory {BatchFolder} does not exist. No cleanup performed.")
+
 
 def CreateSymlinksToBatch(FolderPath, BatchDir=AirflowBatchDir):
     os.makedirs(BatchDir, exist_ok=True)
@@ -89,6 +108,7 @@ with DAG(
     task_enable_batch = {}
     task_process_all_batches = {}
     task_lemmatize_batch = {}
+    task_cleanup_files_batch = {}
     TaskGroups = {}
 
     for folder in os.listdir(DataDir):
@@ -97,7 +117,7 @@ with DAG(
             if folder not in TaskGroups:
                 TaskGroups[folder] = TaskGroup(group_id=f"group_{folder}")
 
-            # Create batch task
+            
             task_enable_batch[folder] = PythonOperator(
                 task_id=f'Create_Batch_For_{folder}',  
                 python_callable=CreateSymlinksToBatch,
@@ -105,7 +125,7 @@ with DAG(
                 task_group=TaskGroups[folder],
             )
 
-            # Consolidated process task
+            
             task_process_all_batches[folder] = PythonOperator(
                 task_id=f'Process_All_Batches_For_{folder}',
                 python_callable=ProcessAllBatches,
@@ -114,7 +134,7 @@ with DAG(
                 pool='tweet_pool',
             )
 
-            # Lemmatize batch task
+           
             task_lemmatize_batch[folder] = TriggerDagRunOperator(
                 task_id=f'Lemmatize_All_Batches_For_{folder}',
                 trigger_dag_id='Lemmatization_of_Tweets',
@@ -123,5 +143,11 @@ with DAG(
                 pool='lemmatize_pool',
             )
 
-            # Set dependencies
-            task_enable_batch[folder] >> task_process_all_batches[folder] >> task_lemmatize_batch[folder]
+            task_cleanup_files_batch[folder] = PythonOperator(
+                task_id=f'Cleanup_Batch_For_{folder}',  
+                python_callable=CleanUpFiles,
+                op_kwargs={'BatchFolder': FolderPath},
+                task_group=TaskGroups[folder],
+            )
+            
+            task_enable_batch[folder] >> task_process_all_batches[folder] >> task_cleanup_files_batch[folder] >> task_lemmatize_batch[folder]
