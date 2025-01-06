@@ -8,7 +8,7 @@ import re
 from DBController import LoadConfig, ConnectDB
 from ProcessController import ProcessFolder
 
-MaxBatchSize = 20 * 1024 * 1024
+MaxBatchSize = 20 * 1024
 AirflowBatchDir = '/opt/airflow/AirflowBatches/'
 
 import os
