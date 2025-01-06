@@ -18,7 +18,8 @@ def AddBatch(engine, BatchName):
         InsertBatchQuery = text("""
             INSERT INTO batches (batch_name, batch_status)
             VALUES (:batch_name, 'NEW')
-            ON CONFLICT (batch_name) DO NOTHING
+            ON CONFLICT (batch_name)
+            DO UPDATE SET batch_status = 'NEW';
         """)
         conn.execute(InsertBatchQuery, {'batch_name': BatchName})
 
