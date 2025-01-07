@@ -48,7 +48,10 @@ Ensure the following are installed on your system:
    - **Username**: `admin`
    - **Password**: `admin`
 
-5. **Start DAGs in Airflow**:
+5. **Copy tweets to the folder labelled 'tweets'**:
+   The data will be processed from this folder so you can copy all the json to a subfolder under tweets. Make sure that the json is not directly stored in the tweets folder and has a parent folder sitting inside tweets.
+   The process will break down all json into batches, but it does not keep track of whether the data is already uploaded to the DB. You can delete the files manually after completion or create a task in airflow to do the same.
+6. **Start DAGs in Airflow**:
    Open your browser and go to `http://localhost:8080/` to access the Airflow UI.
    Use the following credentials to log in:
    - **Username**: `Airflow`
